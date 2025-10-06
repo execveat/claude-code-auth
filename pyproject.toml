@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-code-auth"
+version = "0.1.0"
+description = "Shared OAuth session helper for Anthropic Claude Code"
+readme = "README.md"
+authors = [
+  { name = "Andrew", email = "andrew@example.com" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = [
+  "pydantic>=2.6,<3",
+  "requests>=2.28,<3.0",
+]
+classifiers = [
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX",
+]
+
+[project.urls]
+Homepage = "https://github.com/anthropic/claude-code"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/claude_code_auth"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/claude_code_auth",
+  "tests",
+  "README.md",
+]
+
+[tool.uv]
+managed = true
