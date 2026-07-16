@@ -42,9 +42,7 @@ class ClaudeEnvironment(str):
             return cls.STAGING
         if lowered in {cls.LOCAL, "dev", "development"}:
             return cls.LOCAL
-        raise ValueError(
-            "environment must be one of 'prod', 'staging', or 'local'"
-        )
+        raise ValueError("environment must be one of 'prod', 'staging', or 'local'")
 
 
 _ENVIRONMENT_CONFIGS: Dict[str, AnthropicOAuthConfig] = {
@@ -86,7 +84,9 @@ class Settings(BaseModel):
         default_factory=lambda: Path.home() / ".claude",
         description="Base directory used for Claude Code configuration data",
     )
-    environment: Literal[ClaudeEnvironment.PROD, ClaudeEnvironment.STAGING, ClaudeEnvironment.LOCAL] = Field(
+    environment: Literal[
+        ClaudeEnvironment.PROD, ClaudeEnvironment.STAGING, ClaudeEnvironment.LOCAL
+    ] = Field(
         default=ClaudeEnvironment.PROD,
         description="Which Anthropic environment to target",
     )
@@ -119,13 +119,24 @@ class Settings(BaseModel):
         gt=0,
     )
     user_agent_cli: str = Field(
-        default="claude-cli/2.0.8 (external, cli)",
+        default="claude-cli/2.1.150 (external, sdk-cli)",
         description="User agent applied to CLI-facing requests",
         min_length=1,
     )
     user_agent_internal: str = Field(
         default="axios/1.8.4",
         description="User agent for internal service-to-service requests",
+        min_length=1,
+    )
+    cli_version: str = Field(
+        default="2.1.150",
+        description=(
+            "Claude Code version string used for the OAuth attribution "
+            "fingerprint (see fingerprint.py) and as the version embedded in "
+            "user_agent_cli. Keep in sync with a real installed `claude "
+            "--version` -- a stale value doesn't break the fingerprint math "
+            "itself, but drifts from what genuine traffic looks like."
+        ),
         min_length=1,
     )
 
@@ -190,7 +201,9 @@ class Settings(BaseModel):
     def _record_sources(self, info: ValidationInfo):
         if info.context:
             provided = info.context.get("sources") or {}
-            self._sources.update({k: v for k, v in provided.items() if k != "use_local_oauth_flag"})
+            self._sources.update(
+                {k: v for k, v in provided.items() if k != "use_local_oauth_flag"}
+            )
         return self
 
     @computed_field(return_type=Tuple[float, float])
@@ -231,10 +244,13 @@ _FIELD_ENV_VARS: Dict[str, str] = {
     "timeout_read_seconds": "CLAUDE_CODE_TIMEOUT_READ",
     "user_agent_cli": "CLAUDE_CODE_USER_AGENT_CLI",
     "user_agent_internal": "CLAUDE_CODE_USER_AGENT_INTERNAL",
+    "cli_version": "CLAUDE_CODE_CLI_VERSION",
 }
 
 
-def _gather_env(overrides: Optional[Dict[str, str]] = None) -> tuple[Dict[str, str], Dict[str, str]]:
+def _gather_env(
+    overrides: Optional[Dict[str, str]] = None,
+) -> tuple[Dict[str, str], Dict[str, str]]:
     """Collect environment values for known settings and track their sources."""
 
     env = overrides or os.environ

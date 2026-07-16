@@ -8,6 +8,11 @@ from .exceptions import (
     KeychainAccessError,
     RefreshError,
 )
+from .fingerprint import (
+    build_attribution_header_text,
+    build_attribution_system_blocks,
+    compute_fingerprint,
+)
 from .manager import ClaudeCodeOAuthManager, default_manager
 from .models import AnthropicOAuthConfig, OAuthTokens
 from .settings import Settings, load_settings
@@ -23,4 +28,7 @@ __all__ = [
     "default_manager",
     "Settings",
     "load_settings",
+    "compute_fingerprint",
+    "build_attribution_header_text",
+    "build_attribution_system_blocks",
 ]

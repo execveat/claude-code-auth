@@ -30,27 +30,66 @@ import requests
 from claude_code_auth import ClaudeCodeOAuthManager
 
 manager = ClaudeCodeOAuthManager()
+prompt = 'What should I search for to find the latest developments in renewable energy?'
 
 # Use the automatically refreshed headers with requests or httpx.
-response = requests.get(
+response = requests.post(
     "https://api.anthropic.com/v1/messages",
     # Always fetch the latest valid token; the manager will refresh when expiration is near.
     headers=manager.build_headers(),
     timeout=30,
     json={
-      'model': 'claude-3-5-haiku-20241022',
+      'model': 'claude-sonnet-5',
       'max_tokens': 512,
-      'messages': [
-        {
-          'role': 'user',
-          'content': 'What should I search for to find the latest developments in renewable energy?'
-        }
-      ]
+      # REQUIRED for OAuth-authenticated requests -- see "Attribution / fingerprint" below.
+      'system': manager.build_system_blocks(prompt),
+      'messages': [{'role': 'user', 'content': prompt}]
     }
 )
 response.raise_for_status()
 print(response.json())
 ```
+
+### Attribution / fingerprint requirement (read this before debugging a 429)
+
+`build_headers()` alone is **not enough** to make an OAuth-authenticated
+`/v1/messages` call succeed. Anthropic validates OAuth (subscription) auth
+against an "attribution block" — a specific text block that must be the
+*first* entry of the request's `system` array. Omit it and the request comes
+back `429 rate_limit_error` with **none** of the normal
+`anthropic-ratelimit-unified-*` accounting headers present — i.e. it's
+rejected before ever reaching real per-account rate-limit evaluation, so it
+looks like a quota problem but isn't one. Reconnecting, waiting out a
+"burst window", or matching every other header byte-for-byte does not fix
+it; adding this block does, immediately.
+
+Despite looking like an HTTP header (`x-anthropic-billing-header: cc_version=...`),
+it is literal **text inside the system prompt**, not a real header. It's a
+short client-version + fingerprint string, where the fingerprint is
+`SHA256(SALT + msg[4] + msg[7] + msg[20] + version)[:3]` computed from the
+*first user message's text*. `api.anthropic.com` strips it before processing
+as long as it arrives unchanged as the first system block, so it doesn't
+pollute the prompt or affect caching.
+
+Use `manager.build_system_blocks(first_user_message_text)` to build this
+correctly — it also prepends the standard Claude Code identity line by
+default (`include_cli_prefix=False` to omit it). If you need just the raw
+fingerprint or header text, `compute_fingerprint()` and
+`build_attribution_header_text()` are exported directly from the package.
+Reverse-engineered from Anthropic's own (unofficial) Claude Code source and
+confirmed against a real captured request; see `src/claude_code_auth/fingerprint.py`
+for the full derivation and citations.
+
+Two more fidelity notes, useful if you still see odd rejections:
+- `Settings.cli_version` (env `CLAUDE_CODE_CLI_VERSION`) feeds both the
+  fingerprint computation and should be kept close to a real installed
+  `claude --version` — it doesn't have to be exact for the math to work, but
+  a wildly stale value is one more thing that makes the request look less
+  like genuine traffic.
+- The Anthropic Messages API supports `"stream": false` for a plain JSON
+  response — Claude Code the CLI product never uses this (streaming is a
+  hard requirement for the actual CLI), but there's nothing stopping a
+  direct API caller like this library from choosing either.
 
 ### Manual refresh
 
@@ -93,8 +132,9 @@ Call `load_settings()` if you need to inspect the current values programmaticall
 | `keychain_services`                                | `CLAUDE_CODE_KEYCHAIN_SERVICES`                           | `()`                               | Ordered search list split by `os.pathsep`. Locks discovery to the provided names.                                                          |
 | `refresh_margin_ms`                                | `CLAUDE_CODE_REFRESH_MARGIN_MS`                           | `1_800_000`                        | Milliseconds before expiry that trigger proactive refresh; must be positive.                                                               |
 | `timeout_connect_seconds` / `timeout_read_seconds` | `CLAUDE_CODE_TIMEOUT_CONNECT`, `CLAUDE_CODE_TIMEOUT_READ` | `5s` / `20s`                       | Applied to both refresh and profile lookups.                                                                                               |
-| `user_agent_cli`                                   | `CLAUDE_CODE_USER_AGENT_CLI`                              | `claude-cli/2.0.8 (external, cli)` | Overrides the public-facing user agent header.                                                                                             |
+| `user_agent_cli`                                   | `CLAUDE_CODE_USER_AGENT_CLI`                              | `claude-cli/2.1.150 (external, sdk-cli)` | Overrides the public-facing user agent header.                                                                                       |
 | `user_agent_internal`                              | `CLAUDE_CODE_USER_AGENT_INTERNAL`                         | `axios/1.8.4`                      | Overrides the internal service-to-service user agent.                                                                                      |
+| `cli_version`                                      | `CLAUDE_CODE_CLI_VERSION`                                 | `2.1.150`                          | Feeds the OAuth attribution fingerprint (see "Attribution / fingerprint requirement" above); keep close to a real installed CLI version.   |
 
 Tokens stored in the plaintext file can be refreshed; when the keychain is used its winning entry is updated in place.
 

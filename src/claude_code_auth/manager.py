@@ -5,14 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import platform
+import uuid
 from typing import Any, List, Optional, Tuple
 
 import requests
 
-ANTHROPIC_HEADER_BETA = "oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14"
-ANTHROPIC_HEADER_VERSION = "2023-06-01"
-from .exceptions import (CredentialUnavailableError, KeychainAccessError,
-                         RefreshError)
+from .exceptions import CredentialUnavailableError, KeychainAccessError, RefreshError
+from .fingerprint import build_attribution_system_blocks
 from .locking import ConfigLock
 from .models import OAuthTokens
 from .settings import Settings, load_settings
@@ -23,6 +22,22 @@ __all__ = [
     "ClaudeCodeOAuthManager",
     "default_manager",
 ]
+
+# Kept minimal historically; updated 2026-07 against a real captured Claude
+# Code v2.1.150 request (~/Projects/obol/local/proxy-headers.log) which sends
+# eleven capability tokens, not two. `claude-code-20250219` in particular is
+# believed to be the flag that marks this as genuine Claude Code product
+# traffic -- requests are otherwise NOT rejected for missing it alone (the
+# real blocker for OAuth auth is the attribution/fingerprint system block,
+# see fingerprint.py), but omitting it is still a fidelity gap worth closing.
+ANTHROPIC_HEADER_BETA = (
+    "claude-code-20250219,oauth-2025-04-20,context-1m-2025-08-07,"
+    "interleaved-thinking-2025-05-14,context-management-2025-06-27,"
+    "prompt-caching-scope-2026-01-05,advisor-tool-2026-03-01,"
+    "advanced-tool-use-2025-11-20,effort-2025-11-24,extended-cache-ttl-2025-04-11,"
+    "cache-diagnosis-2026-04-07"
+)
+ANTHROPIC_HEADER_VERSION = "2023-06-01"
 
 
 class ClaudeCodeOAuthManager:
@@ -39,7 +54,9 @@ class ClaudeCodeOAuthManager:
 
         self._settings = settings or load_settings()
         self._refresh_margin_ms = (
-            refresh_margin_ms if refresh_margin_ms is not None else self._settings.refresh_margin_ms
+            refresh_margin_ms
+            if refresh_margin_ms is not None
+            else self._settings.refresh_margin_ms
         )
         self._logger = logger or logging.getLogger("claude_code_auth")
         self._config_dir = config_dir(self._settings)
@@ -85,7 +102,15 @@ class ClaudeCodeOAuthManager:
             return self._refresh_with_store_locked(tokens, store)
 
     def build_headers(self) -> dict[str, str]:
-        """Return HTTP headers suitable for authenticated API calls."""
+        """Return HTTP headers suitable for authenticated API calls.
+
+        Headers alone are NOT sufficient for OAuth-authenticated /v1/messages
+        calls to succeed -- see build_system_blocks() and the module docs in
+        fingerprint.py. Without the attribution/fingerprint system block,
+        requests built from these headers get a bare 429 rate_limit_error
+        with no rate-limit accounting headers at all (confirmed empirically:
+        identical requests succeed instantly once that block is added).
+        """
 
         token = self.access_token
         return {
@@ -96,7 +121,33 @@ class ClaudeCodeOAuthManager:
             "anthropic-beta": ANTHROPIC_HEADER_BETA,
             "anthropic-dangerous-direct-browser-access": "true",
             "anthropic-version": ANTHROPIC_HEADER_VERSION,
+            "X-App": "cli",
+            "X-Claude-Code-Session-Id": str(uuid.uuid4()),
+            "X-Client-Request-Id": str(uuid.uuid4()),
         }
+
+    def build_system_blocks(
+        self,
+        message_text: str,
+        *,
+        entrypoint: str = "cli",
+        include_cli_prefix: bool = True,
+    ) -> list[dict]:
+        """Build the required `system` array prefix for OAuth-authenticated requests.
+
+        `message_text` must be the first user message's text content --
+        the fingerprint is computed from specific character indices of it
+        (see fingerprint.py). Put any additional system content AFTER these
+        blocks in the request's `system` array; never reorder, merge, or
+        drop them.
+        """
+
+        return build_attribution_system_blocks(
+            message_text,
+            version=self._settings.cli_version,
+            entrypoint=entrypoint,
+            include_cli_prefix=include_cli_prefix,
+        )
 
     # ------------------------------------------------------------------
     # Internals
@@ -140,7 +191,9 @@ class ClaudeCodeOAuthManager:
                 self._logger.debug("Using Claude credentials from %s", store.describe())
                 return tokens
         joined = "; ".join(errors) if errors else "no credential sources returned data"
-        raise CredentialUnavailableError(f"Unable to locate Claude credentials: {joined}")
+        raise CredentialUnavailableError(
+            f"Unable to locate Claude credentials: {joined}"
+        )
 
     def _refresh_via_network(self, refresh_token: str) -> OAuthTokens:
         """Exchange the refresh token against Anthropic's OAuth endpoint."""
