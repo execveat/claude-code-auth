@@ -52,6 +52,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import requests
+
 import synthetic_multiturn_test as smt
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -111,18 +113,20 @@ def plan_trials(spec, trials_per_condition):
     return plan
 
 
-def run_trial(resolved_args):
+def run_trial(resolved_args, session=None):
     """The ONLY function in this module that touches the network. Builds a
     SimpleNamespace matching what synthetic_multiturn_test.py's own argparse
     Namespace would look like, then calls its build_messages/run_streaming/
-    run_nonstreaming directly.
+    run_nonstreaming directly. session=None (default) preserves exact current
+    behavior (fresh requests.post per call) -- see synthetic_multiturn_test.py's
+    run_streaming/run_nonstreaming docstrings (TASK-020).
     """
     args = SimpleNamespace(**resolved_args)
     cache_ttl = None if args.cache_ttl == "none" else args.cache_ttl
     messages = smt.build_messages(args.prompt, cache_ttl)
     if args.mode == "stream":
-        return smt.run_streaming(messages, args)
-    return smt.run_nonstreaming(messages, args)
+        return smt.run_streaming(messages, args, session=session)
+    return smt.run_nonstreaming(messages, args, session=session)
 
 
 def parse_cli_args():
@@ -145,6 +149,14 @@ def parse_cli_args():
         action="store_true",
         help="print the planned trial list and exit -- makes ZERO network calls",
     )
+    p.add_argument(
+        "--reuse-connection",
+        action="store_true",
+        help="share ONE requests.Session (persistent TCP/TLS connection) across "
+        "every trial in this sweep, instead of a fresh connection per trial "
+        "(TASK-020: does connection reuse shrink per-request fixed overhead?). "
+        "Default off -- omitting this flag is byte-identical to today's behavior.",
+    )
     return p.parse_args()
 
 
@@ -165,13 +177,17 @@ def main():
 
     out_path = Path(cli_args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # One shared Session for the whole sweep when --reuse-connection is set;
+    # None (the default) means every run_trial call falls through to a fresh
+    # requests.post, identical to pre-TASK-020 behavior.
+    session = requests.Session() if cli_args.reuse_connection else None
     with open(out_path, "a") as f:
         for i, (label, trial_idx, resolved) in enumerate(plan):
             print(
                 f"[{i + 1}/{len(plan)}] running label={label!r} trial={trial_idx}...",
                 file=sys.stderr,
             )
-            result = run_trial(resolved)
+            result = run_trial(resolved, session=session)
             record = {
                 "label": label,
                 "trial": trial_idx,
