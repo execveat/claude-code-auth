@@ -1,6 +1,9 @@
 # Claude API Throughput Research — evergreen findings
 
-**Status**: living document, autonomous research pass started 2026-07-17 ~01:15 local.
+**Status**: living document. The 2026-07-17 ~01:15-07:53 local autonomous
+research pass concluded with the backlog at 0/0 (25/25 planq tickets done) —
+see the Changelog's "MISSION CONCLUSION" entry. Still living: a future
+session should extend this doc, not restart it.
 **Owner**: Andrew's Claude Code session (autopilot mode) + external peer review.
 **Scope**: what actually moves real-world tokens/sec for Claude Sonnet-5-class
 models accessed via OAuth subscription auth (not API-key billing), and how to
@@ -1524,6 +1527,69 @@ generation activity after the first content delta, excluding prefill/TTFT.
 
 ## Changelog
 
+- 2026-07-17 (MISSION CONCLUSION, ~07:53 CEST, ~6.6h into the ~8h autonomous
+  overnight window): Backlog reached 0/0 — all 25 planq tickets across the
+  whole mission completed, 0 cancelled, 0 on hold (`planq stats`: 3.6
+  tasks/day throughput, avg 1.0h cycle time). TASK-025/F24 (warm-context-
+  length vs decode tok/s) was the true last ticket, run via a single
+  post-self-compaction fork after fresh premise re-validation confirmed the
+  compaction handover was accurate (commit `0de6d44`: clean tree, exactly 1
+  open ticket, only `a83ebefc` + the two now-fired one-shot crons scheduled).
+  Then, per this session's own established fallback ("if genuinely idle with
+  nothing left, consult external peers before declaring done"), ran a SECOND
+  external peer-review pass (`claude-opus-4-8-thinking-high` +
+  `gpt-5.6-sol-high` via `cursor-agent`) scoped to F20-F24 specifically
+  (added after the first big review pass) — found and fixed 6 more real
+  issues (an unearned "statistically indistinguishable" claim in F24, an
+  inflated "7x" range that the doc's own spend-accounting line contradicted,
+  an internal Exec-Summary-vs-Rec-Config contradiction on cache TTL, an
+  arithmetic slip in F21, an overcommitted causal claim in F21, and two
+  missing Recommended Configuration entries for F22/F23) — every finding
+  independently re-verified against the doc's own source text before being
+  acted on, per this mission's standing norm (see `b96efc0`).
+  **Full 8h arc, headline results**: streaming vs non-streaming has
+  genuinely NO throughput difference (F11, properly controlled, p=0.99) —
+  the mission's original triggering question, definitively closed.
+  Concurrency (up to N=16 independent connections) is the single biggest,
+  most certain throughput lever available with zero billing changes (F13),
+  with two important caveats found later: it does NOT benefit from HTTP/2
+  multiplexing (F21, fails outright before N=8) and does NOT deduplicate a
+  simultaneous cold-cache write (F23, pays the write cost N times over).
+  `output_config.effort` is real, substantial, and the only confirmed-working
+  lever for thinking depth (F10; manual `budget_tokens` is confirmed
+  non-functional, F15). Prompt caching and context length are BOTH decode-
+  speed-neutral (F4, F24) — caching is purely a cost/TTFT lever, and cache
+  TTL (`1h` vs `5m`) is a real, avoidable cost footgun for realistic idle
+  gaps (F20), correctly nuanced against blanket "always 1h" advice. Fast
+  Mode (F3) remains the single biggest OUTSTANDING lever, gated behind a
+  billing decision only Andrew can make. Batch API (F22) and `inference_geo`/
+  Priority Tier (F17/F5) are cleanly closed, non-actionable gates.
+  **Shipped**: the `bench/` harness grew to 9 tools (`synthetic_multiturn_test.py`
+  core + `run_sweep.py`, `analyze_results.py`, `concurrency_test.py`,
+  `cache_ttl_gap_test.py`, `concurrency_http2_test.py`, `batch_api_probe.py`,
+  `cold_cache_stampede_test.py`, `context_length_decode_test.py`), a 24-finding
+  evergreen doc (this one) with a full external-peer-review-corrected
+  Recommended Configuration, and 2 real harness bugs found and fixed along
+  the way (`analyze_results.py`'s fake zero-width IQR at n<4; `thinking=
+  "disabled"` silently failing to suppress reasoning).
+  **Process lessons carried forward** (already written into this doc's
+  earlier entries, restated here for future autonomous sessions): a
+  zero-tool-call fork response is a mechanical, cheap-to-detect failure mode
+  (check `tool_uses` in the returned usage stats) with a known fix (a blunt
+  "act now, don't narrate" re-dispatch); a fork's context-exhaustion BLOCKED
+  report is a legitimate deliverable, not a failure, and the coordinator
+  should finish a small, already-scoped remainder directly rather than
+  re-dispatch; the coordinator's own self-compaction ceremony (two one-shot
+  crons, `/compact` then a lean resume, both carrying the full epistemic
+  ledger) worked cleanly across this session's one compaction boundary, with
+  zero lost state. **Final running cost tally**: roughly $45-60 total real
+  OAuth-subscription API spend across the whole multi-session mission (this
+  final stretch added ~$2-3 for F24 plus negligible peer-review-correction
+  cost, since the second peer-review pass was external-CLI billing, not
+  Anthropic API spend). Heartbeat cron `a83ebefc` deleted as part of this
+  wrap-up (see below) — the mission is genuinely complete, not merely
+  paused; a future session picking this doc back up should treat it as a
+  living document (per its own Status line) and extend it, not restart it.
 - 2026-07-17 (TASK-024 + TASK-023, run serially to avoid a concurrency
   confound): **TASK-024** (fork): probed whether Batch API is reachable via
   this OAuth credential. Landed **F22**: closed via an OAuth token SCOPE gate
