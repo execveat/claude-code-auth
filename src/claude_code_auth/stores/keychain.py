@@ -5,18 +5,22 @@ from __future__ import annotations
 import json
 import logging
 import platform
-from pathlib import Path
 from typing import List, Optional
 
-KEYCHAIN_PREFIX = "Claude Code"
-KEYCHAIN_SUFFIXES = ("", "-local-oauth", "-staging-oauth")
 from ..exceptions import CredentialUnavailableError
-from ..keychain import discover_keychain_services, read_keychain_entry, write_keychain_entry
+from ..keychain import (
+    discover_keychain_services,
+    read_keychain_entry,
+    write_keychain_entry,
+)
 from ..models import OAuthTokens
 from ..parsing import parse_payload
 from ..settings import Settings, load_settings
 from ..utils import hash_suffix_if_needed
 from .base import CredentialStore
+
+KEYCHAIN_PREFIX = "Claude Code"
+KEYCHAIN_SUFFIXES = ("", "-local-oauth", "-staging-oauth")
 
 __all__ = ["KeychainStore"]
 

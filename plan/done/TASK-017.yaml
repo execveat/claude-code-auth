@@ -10,5 +10,11 @@ touches: [src/claude_code_auth/stores/keychain.py, tests/test_manager.py]
 verification:
   - uv run ruff check bench/ src/ tests/ passes with zero findings
 acceptance: []
-status: open
+notes:
+  - at: '2026-07-17T01:18:00'
+    text: 'Fixed both: removed unused pathlib.Path import + moved KEYCHAIN_PREFIX/SUFFIXES after imports in keychain.py; moved the manager import above CONFIG_DIR_ENV in test_manager.py. uv run ruff check bench/ src/ tests/ now passes with zero findings; 10/10 tests still pass.'
+status: completed
+resolution: ruff clean across the whole tree, confirmed via 'uv run ruff check bench/ src/ tests/' -> All checks passed!
 created: '2026-07-17T01:17:06'
+updated: '2026-07-17T01:18:00'
+completed_at: '2026-07-17T01:18:00'

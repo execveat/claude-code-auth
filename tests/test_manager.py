@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-CONFIG_DIR_ENV = "CLAUDE_CODE_CONFIG_DIR"
-
 from claude_code_auth import ClaudeCodeOAuthManager
+
+CONFIG_DIR_ENV = "CLAUDE_CODE_CONFIG_DIR"
 
 
 class _MockResponse:
