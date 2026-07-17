@@ -103,12 +103,7 @@ def build_thinking_block(args):
 
 
 def build_body(messages, args):
-    # Lower refresh margin: claude-code-auth's proactive refresh (default
-    # 30-min-out margin) currently 404s against the token endpoint (a
-    # pre-existing, separate bug -- tracked, not fixed here). The access
-    # token itself is still valid; just don't trigger the broken refresh
-    # path for a token that isn't actually expired yet.
-    manager = ClaudeCodeOAuthManager(refresh_margin_ms=60_000)
+    manager = ClaudeCodeOAuthManager()
     text = first_user_message_text(messages)
     system = manager.build_system_blocks(text)
 

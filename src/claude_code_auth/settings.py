@@ -56,14 +56,14 @@ _ENVIRONMENT_CONFIGS: Dict[str, AnthropicOAuthConfig] = {
     ClaudeEnvironment.STAGING: AnthropicOAuthConfig(
         name="staging",
         base_api_url="https://api.anthropic.com",
-        token_url="https://console.anthropic.com/v1/oauth/token",
+        token_url="https://platform.claude.com/v1/oauth/token",
         roles_url="https://api.anthropic.com/api/oauth/claude_cli/roles",
         client_id="9d1c250a-e61b-44d9-88ed-5944d1962f5e",
     ),
     ClaudeEnvironment.PROD: AnthropicOAuthConfig(
         name="prod",
         base_api_url="https://api.anthropic.com",
-        token_url="https://console.anthropic.com/v1/oauth/token",
+        token_url="https://platform.claude.com/v1/oauth/token",
         roles_url="https://api.anthropic.com/api/oauth/claude_cli/roles",
         client_id="9d1c250a-e61b-44d9-88ed-5944d1962f5e",
     ),

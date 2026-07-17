@@ -38,7 +38,7 @@ class ClaudeCodeOAuthManagerTests(unittest.TestCase):
             credentials_path.write_text(json.dumps(initial_payload), encoding="utf-8")
 
             def fake_post(url, json=None, timeout=None, headers=None):
-                self.assertEqual(url, "https://console.anthropic.com/v1/oauth/token")
+                self.assertEqual(url, "https://platform.claude.com/v1/oauth/token")
                 self.assertEqual(json["refresh_token"], "refresh-me")
                 return _MockResponse(
                     status_code=200,
@@ -174,6 +174,27 @@ class ClaudeCodeOAuthManagerTests(unittest.TestCase):
             self.assertNotEqual(
                 headers1["X-Client-Request-Id"],
                 headers2["X-Client-Request-Id"],
+            )
+
+    def test_token_url_matches_current_anthropic_endpoint(self) -> None:
+        """Regression test for a real bug: PROD/STAGING token_url pointed at
+        https://console.anthropic.com/v1/oauth/token, which 404s -- the
+        endpoint moved to https://platform.claude.com/v1/oauth/token
+        (confirmed against ~/Projects/cc/cc-xray's PROD_OAUTH_CONFIG.TOKEN_URL,
+        the real value Claude Code itself sends). This 404 was previously
+        masked rather than caught: test_refresh_persists_to_plaintext_store's
+        mock asserted the OLD, WRONG url as the expected value, so the whole
+        suite stayed green while the real library 404'd against the real
+        network. Assert directly against the resolved config so this can't
+        regress silently again."""
+        from claude_code_auth.settings import ClaudeEnvironment, _ENVIRONMENT_CONFIGS
+
+        for env in (ClaudeEnvironment.PROD, ClaudeEnvironment.STAGING):
+            config = _ENVIRONMENT_CONFIGS[env]
+            self.assertEqual(
+                config.token_url,
+                "https://platform.claude.com/v1/oauth/token",
+                f"{env} token_url is stale",
             )
 
 
