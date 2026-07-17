@@ -38,6 +38,10 @@ notes:
   with other live-API work sharing the same checkout.
 
   '
-status: open
+  - at: '2026-07-17T04:26:31'
+    text: 'Fork ran the marker-isolated 5m-vs-1h A/B (bench/cache_ttl_gap_test.py, commit 82c2e53): N=3/condition, 6/6 unambiguous, exact-token-count match on every 1h cache-read, full fresh cache-write on every 5m expiry. Bonus scope:global probe: accepted, no observable effect.'
+status: completed
+resolution: 'F20 confirmed: 1h TTL survives a ~7min gap byte-for-byte, 5m TTL always expires and repays the full cache-write cost -- see docs/THROUGHPUT_RESEARCH.md F20 (Confirmed Findings) and its Changelog entry'
 created: '2026-07-17T01:16:35'
-updated: '2026-07-17T03:41:15'
+updated: '2026-07-17T04:26:31'
+completed_at: '2026-07-17T04:26:31'

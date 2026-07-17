@@ -66,7 +66,12 @@ entirely), `--thinking-budget`, `--effort {low,medium,high,xhigh,max}`
 `docs/THROUGHPUT_RESEARCH.md` F3), `--service-tier {auto,standard_only}`,
 `--inference-geo`, `--extra-beta` (repeatable, appends an extra
 `anthropic-beta` value), `--cache-ttl` (`1h`, `5m`, or `none` to disable
-`cache_control` on the shared prefix entirely).
+`cache_control` on the shared prefix entirely — see F20, `1h` is the
+recommended default for any session with realistic idle gaps),
+`--thinking-display {omitted,summarized}` (`thinking.display` — streaming-only,
+controls whether visible thinking text streams; see F9/F19),
+`--output-schema <path to JSON schema file>` (enables
+`output_config.format` grammar-constrained structured output; see F7/F18).
 
 Vary only the trailing prompt (and whichever single lever you're testing)
 between trials — never the shared prefix itself — so each trial benefits
@@ -105,8 +110,9 @@ Top-level keys other than `conditions` are defaults shared by every
 condition; each condition's own `args` overrides them. Any field
 `synthetic_multiturn_test.py`'s CLI accepts (`mode`, `prompt`, `model`,
 `max_tokens`, `thinking`, `thinking_budget`, `effort`, `speed`,
-`service_tier`, `inference_geo`, `extra_beta`, `cache_ttl`) can appear at
-either level. See `bench/specs/example_effort_sweep.json` for a working example.
+`service_tier`, `inference_geo`, `extra_beta`, `cache_ttl`,
+`thinking_display`, `output_schema`) can appear at either level. See
+`bench/specs/example_effort_sweep.json` for a working example.
 
 ```bash
 # Always dry-run first -- prints the full resolved trial plan, makes ZERO network calls.
@@ -115,6 +121,11 @@ uv run python bench/run_sweep.py --spec bench/specs/example_effort_sweep.json --
 # Then run for real:
 uv run python bench/run_sweep.py --spec bench/specs/example_effort_sweep.json \
     --trials-per-condition 3 --delay-seconds 5 --out bench/results/effort_sweep.jsonl
+
+# Reuse one persistent HTTP session across the whole sweep instead of a fresh
+# connection per trial (F14: confirmed no throughput effect, but available):
+uv run python bench/run_sweep.py --spec bench/specs/example_effort_sweep.json \
+    --trials-per-condition 3 --reuse-connection --out bench/results/effort_sweep.jsonl
 ```
 
 `bench/results/*.jsonl` is gitignored — it's real usage data (real prompts,

@@ -174,6 +174,15 @@ Two headline results carried forward from before this autonomous pass:
     because F15 already proved that field isn't enforced — there is currently
     no reliable lever to control `adaptive` thinking's variance for a design
     like this. See F19.
+18. **Cache TTL (`1h` vs `5m`) is DEFINITIVELY confirmed to control whether a
+    cached prefix survives a real idle gap** (TASK-013, this mission's LAST
+    ticket) — 6/6 trials, zero ambiguity: every `5m`-TTL trial paid a full
+    fresh cache-write after a ~7 minute gap (identical token count to its own
+    first call); every `1h`-TTL trial's second call landed as a pure
+    cache-read with an EXACT token-count match to its first call. This closes
+    planq's backlog to zero open tickets and settles a real, avoidable cost
+    footgun: any session with realistic human-paced idle gaps should default
+    to `1h`, never the shorter TTL. See F20.
 
 ## Confirmed Findings
 
@@ -806,6 +815,64 @@ Raw `ttft_text_ms` per trial (ms):
 - Real-API spend: 12 trials at up to 6000 tokens each (~35K tokens total,
   cache-read, effort=high) — roughly $3-5.
 
+### F20. Cache TTL (1h vs 5m) definitively confirmed to control survival across a real wall-clock gap (2026-07-17, TASK-013, mission's LAST ticket)
+Testing this required solving a real design hazard first: `build_messages()`
+(`bench/synthetic_multiturn_test.py:84-92`) always marks `cache_control` on
+the IDENTICAL last block of the on-disk shared prefix
+(`bench/fixtures/synthetic_history.json`) — since Anthropic's cache key is
+content-addressed, any two calls sharing that exact prefix content collide
+onto ONE cache entry regardless of which `ttl` each individually requests.
+New tool `bench/cache_ttl_gap_test.py` fixes this by injecting a unique
+`uuid4()` marker into the cached block's text per trial (same technique as
+F18's cold/warm isolation), giving every trial/condition an independent,
+uncontaminated cache entry. This also enabled a real efficiency win: since
+each trial's cache entry is isolated, all 6 trials' first calls were batched
+together, followed by ONE shared ~7 minute gap, then all 6 second calls —
+collapsing what would have been ~40 minutes of naive serial waiting into
+~10-15 minutes.
+
+N=3 trials/condition, `thinking` disabled, trivial prompt, `max_tokens=50`
+(minimize cost — this experiment is about prefill/cache mechanics, not
+generation):
+
+| condition | trial | gap (s) | call#1 create/read | call#2 create/read |
+|---|---|---|---|---|
+| `ttl:"5m"` | 0 | 422 | 358214 / 0 | 358214 / 0 |
+| `ttl:"5m"` | 1 | 422 | 358210 / 0 | 358210 / 0 |
+| `ttl:"5m"` | 2 | 422 | 358208 / 0 | 358208 / 0 |
+| `ttl:"1h"` | 0 | 421 | 358212 / 0 | 0 / 358212 |
+| `ttl:"1h"` | 1 | 420 | 358210 / 0 | 0 / 358210 |
+| `ttl:"1h"` | 2 | 421 | 358208 / 0 | 0 / 358208 |
+
+- **Clean, unambiguous, 6/6.** Every `5m` trial's call#2 pays a full fresh
+  `cache_creation` identical in size to its own call#1 (the entry expired
+  across the ~7min gap and was rewritten from scratch). Every `1h` trial's
+  call#2 lands as a pure `cache_read` whose token count EXACTLY matches its
+  own call#1's `cache_creation` (the entry survived the identical gap,
+  byte-for-byte). Gap durations were essentially identical across both
+  conditions (420-422s, <2s spread from the batching) — TTL setting is the
+  only varying factor and fully explains the split.
+- **This is the closing half of F4/F6's caching story**: F4 established
+  caching doesn't touch decode speed; F20 establishes the practical
+  operational question — for a session with real idle gaps (a human pausing
+  6-10 minutes between turns, exactly this mission's own synthetic-multiturn
+  use case), `ttl:"1h"` is the only setting that reliably keeps an expensive
+  358K-token prefix warm. `ttl:"5m"` will silently re-pay the full
+  cache-write cost (~6x a cache-read's price, per the Methodology Notes'
+  existing observation) on any gap past 5 minutes — a real, avoidable cost
+  footgun for exactly the kind of long-idle interactive use this toolkit
+  simulates.
+- **Bonus probe**: `cache_control.scope:"global"` (sent via the undocumented
+  `prompt-caching-scope-2026-01-05` beta header) is ACCEPTED (HTTP 200, not
+  rejected) for this single-user OAuth caller, but shows no observable effect
+  on response/usage shape versus a baseline without it (n=1, not rigorous).
+  Consistent with the a priori expectation: the mechanism exists to share a
+  cache entry across multiple users of one org, which is moot for a lone
+  subscriber. Not worth further investigation unless the account's org
+  structure changes.
+- Real-API spend: 12 trivial calls (`max_tokens:50`, thinking disabled) + 2
+  trivial scope-probe calls — negligible, well under $1.
+
 ## Rejected / Superseded Hypotheses
 
 - **VPN exit-country geo-mirroring** — hypothesized that Anthropic might route
@@ -877,19 +944,14 @@ Raw `ttft_text_ms` per trial (ms):
   isolate a possibly-small transmission-level effect.
 - **Does `token-efficient-tools-2026-03-28` measurably reduce input tokens
   and/or wall-clock on a tool-call-heavy synthetic history?**
-- **Does 1h vs 5m cache TTL reduce prefill/TTFT *variance* across a
-  long-running session** (not disputed: caching doesn't touch decode, per
-  F4 — this question is narrowly about TTFT variance over a session with
-  idle gaps, e.g. does a 1h TTL avoid re-paying cache-write cost across a
-  6-8 minute gap that would blow past a 5m TTL)? Proposed test: repeated
-  trials with deliberate idle gaps straddling the 5m boundary, both TTLs,
-  compare `cache_creation_input_tokens` incidence and TTFT.
-  Also open: whether `cache_control.scope: "global"` (an internal,
-  undocumented-on-the-public-caching-page field Claude Code sends via
-  `prompt-caching-scope-2026-01-05`) is even accepted for a single-user OAuth
-  caller, and if so whether it does anything observable for us (a priori:
-  probably not, since the mechanism exists to share a cache ACROSS multiple
-  users of one org, which doesn't apply to a lone subscriber).
+- ~~Does 1h vs 5m cache TTL reduce prefill/TTFT *variance* across a
+  long-running session~~ — **RESOLVED, see F20 (TASK-013)**: ran the exact
+  proposed test (repeated trials with deliberate ~7min idle gaps straddling
+  the 5m boundary, both TTLs, comparing `cache_creation_input_tokens`
+  incidence) — 6/6 unambiguous: `5m` always expired and repaid a full
+  cache-write across the gap, `1h` always survived as an exact-token-count
+  cache-read. `cache_control.scope:"global"` is accepted (HTTP 200) but shows
+  no observable effect for a single-user OAuth caller, as expected a priori.
 - ~~Does concurrency (N parallel raw API calls) change per-request tok/s~~ —
   **RESOLVED, see F13**: no, not detectably, up to N=16 same-process
   concurrent calls (individual tok/s stayed in the same 56-74 band as the
@@ -983,6 +1045,15 @@ Raw `ttft_text_ms` per trial (ms):
 - **Prompt caching should be treated purely as a cost/TTFT optimization in
   any helper tooling** — never marketed or reasoned about as a decode-speed
   lever (F4).
+- **Always request `cache_control.ttl:"1h"`, never the shorter `"5m"`
+  default, for any session with realistic idle gaps** (F20) — confirmed
+  directly: a `5m`-TTL cache entry evaporates and repays its FULL
+  cache-write cost (~6x a cache-read's price) across a gap as short as ~7
+  minutes, while an identical `1h`-TTL entry survives the same gap
+  byte-for-byte. This mission's own synthetic-multiturn harness (and any
+  real interactive session with human pauses between turns) should default
+  to `1h`. `cache_control.scope:"global"` is accepted but shows no
+  observable benefit for a single-subscriber account — not worth using.
 
 ## Methodology Notes
 
@@ -1068,6 +1139,29 @@ Raw `ttft_text_ms` per trial (ms):
 
 ## Changelog
 
+- 2026-07-17 (TASK-013, dedicated fork + parallel read-only toolkit audit —
+  mission's LAST planq ticket): New tool `bench/cache_ttl_gap_test.py` —
+  injects a per-trial `uuid4()` marker into the cached block's text to avoid
+  a real design hazard (the content-addressed cache key would otherwise let
+  a naive 5m-vs-1h comparison sharing the same on-disk prefix contaminate
+  itself). Batched all 6 trials' first calls together, one shared ~7min gap,
+  then all 6 second calls — collapsing ~40min of naive serial waiting into
+  ~10-15min. Landed **F20**: cache TTL definitively confirmed to control
+  survival across a real idle gap — 3/3 `5m` trials repaid a full fresh
+  cache-write after the gap, 3/3 `1h` trials landed as an exact-token-count
+  cache-read, zero ambiguity. Bonus: `cache_control.scope:"global"` accepted
+  (HTTP 200) but shows no observable effect for a single-user account. This
+  closes planq's backlog to ZERO open tickets. In parallel, a read-only audit
+  fork reviewed the whole `bench/` toolkit for drift/polish: found doc drift
+  (`bench/README.md` and `bench/run_sweep.py`'s docstring both missing the
+  `--thinking-display`/`--output-schema` flags and the `--reuse-connection`
+  capability, all shipped earlier this mission) and two cosmetic gaps
+  (`bench/concurrency_test.py` lacked `choices=` validation on
+  `--effort`/`--thinking`, and its hardcoded `mode="nonstream"` had no
+  explanatory comment) — no real bugs, no tooling-level silent no-ops found
+  (checked directly against this mission's own F14/F15/F16 pattern). Fixed
+  all of the above. Real-API spend: negligible (<$1, 14 trivial calls
+  total). Running mission total: still roughly $36-46.
 - 2026-07-17 (TASK-018, coordinator-run serial experiment): Added
   `--thinking-display` flag (`bench/synthetic_multiturn_test.py`), ran the
   streaming TTFT A/B (`display:"omitted"` vs `"summarized"`, N=6/mode,

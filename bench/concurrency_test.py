@@ -46,6 +46,10 @@ DEFAULT_PROMPT = (
 
 def build_args(effort, thinking, max_tokens, cache_ttl):
     return SimpleNamespace(
+        # nonstream, deliberately: gives each thread's own wall_ms an
+        # unambiguous single request/response span for the aggregate
+        # tok/s math in run_level() -- streaming would need per-chunk
+        # timing per thread for no benefit to this experiment's question.
         mode="nonstream",
         prompt=DEFAULT_PROMPT,
         model="claude-sonnet-5",
@@ -91,8 +95,12 @@ def parse_args():
         default="1,2,4",
         help="comma-separated concurrency levels to test, e.g. 1,2,4,8",
     )
-    p.add_argument("--effort", default="high")
-    p.add_argument("--thinking", default="adaptive")
+    p.add_argument(
+        "--effort", choices=["low", "medium", "high", "xhigh", "max"], default="high"
+    )
+    p.add_argument(
+        "--thinking", choices=["enabled", "adaptive", "disabled"], default="adaptive"
+    )
     p.add_argument("--max-tokens", type=int, default=6000)
     p.add_argument("--cache-ttl", default="1h")
     p.add_argument(

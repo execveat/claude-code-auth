@@ -13,9 +13,10 @@ Takes a sweep spec (JSON) listing conditions, e.g.:
 
 Each condition's `args` maps to synthetic_multiturn_test.py's CLI flags
 (mode, prompt, model, max_tokens, thinking, thinking_budget, effort, speed,
-service_tier, inference_geo, extra_beta, cache_ttl) -- anything omitted
-falls back to that script's own defaults, then to the spec's top-level
-defaults, then to the condition's own args (most specific wins).
+service_tier, inference_geo, extra_beta, cache_ttl, thinking_display,
+output_schema) -- anything omitted falls back to that script's own defaults,
+then to the spec's top-level defaults, then to the condition's own args
+(most specific wins).
 
 Runs `--trials-per-condition` trials per condition, SERIALLY -- one real API
 call at a time, never concurrent. This is deliberate: every single-lever
