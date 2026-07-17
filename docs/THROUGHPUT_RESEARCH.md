@@ -165,6 +165,15 @@ Two headline results carried forward from before this autonomous pass:
     rejects `minItems`/`maxItems` other than 0/1, discovered empirically) mean
     this isn't a clean effect size yet — flagged as suggestive, not proven.
     See F18 (also folds two doc corrections into F7).
+17. **`thinking.display`'s documented streaming-TTFT benefit could not be
+    isolated** (TASK-018) — not refuted, genuinely inconclusive: `adaptive`
+    thinking's own call-to-call depth variance (documented in F10) swamps
+    whatever transmission-level effect `display:"omitted"` vs `"summarized"`
+    has on time-to-first-visible-text. Worth noting: the obvious fix (hold
+    thinking depth constant via a fixed `budget_tokens`) doesn't work either,
+    because F15 already proved that field isn't enforced — there is currently
+    no reliable lever to control `adaptive` thinking's variance for a design
+    like this. See F19.
 
 ## Confirmed Findings
 
@@ -756,6 +765,47 @@ as the original F11 mistake, just discovered in a new context.
   more than pure noise, but doesn't meet this mission's bar for "confirmed."
 - Real-API spend: 6 calls, ~13K output tokens total (cache-read) — under $2.
 
+### F19. `thinking.display` streaming-TTFT benefit: INCONCLUSIVE — confounded by adaptive thinking's own depth variance (2026-07-17, TASK-018)
+F9 established `thinking.display` is real and request-settable, with a
+documented streaming-only benefit ("the server skips streaming thinking
+tokens entirely... the final text response begins streaming sooner"). Built
+the missing capability (`--thinking-display {omitted,summarized}`,
+`bench/synthetic_multiturn_test.py:95-105,343-352`) and ran the actual A/B:
+streaming, `effort:"high"`, `thinking:"adaptive"`, fixed prompt, randomized/
+interleaved order, N=6/mode (`bench/specs/task018_thinking_display_ttft.json`
++ `..._remainder.json` → `bench/results/task018_thinking_display_ttft.jsonl`).
+
+Raw `ttft_text_ms` per trial (ms):
+- `omitted`: 2897, 3203, 3503, 5260, 50908, 59038 — median ≈ 4382ms
+- `summarized`: 2990, 3335, 3630, 5370, 43780, 47154 — median ≈ 4500ms
+
+- **The flag works correctly** (mechanism confirmed): `summarized` trials show
+  nonzero `ttft_thinking_ms` and real visible `thinking_chars` (130-7626
+  observed); `omitted` trials show `null`/`0` for both in all 6/6 trials, as
+  documented.
+- **But the TTFT comparison itself is uninterpretable — both conditions show
+  the SAME bimodal pattern**: most trials fast (~3-5s to first visible text),
+  1-2 trials per condition wildly slow (43-59s) — driven entirely by
+  `adaptive` thinking's own call-to-call depth variance (the same
+  high-variance behavior F10 documented at `high`/`xhigh` effort), which
+  swamps whatever transmission-level effect `display` might have. Medians
+  land within 3% of each other (4382 vs 4500ms) — noise, not signal.
+- **A deeper reason this is hard to fix, not just an underpowered N**: the
+  natural instinct to control thinking depth (fix a low `budget_tokens` to
+  keep every trial's thinking short and comparable) doesn't work — **F15
+  already proved `budget_tokens` isn't enforced**, so there's no reliable
+  lever to reduce `adaptive` thinking's variance for a design like this.
+  `effort` only sets a coarse tier, not a numeric target. This makes any
+  clean isolation of a *small* transmission-level TTFT effect genuinely hard
+  with the tools currently available.
+- **Verdict: inconclusive, not negative.** This does NOT refute F9's
+  documented benefit — it means this design couldn't detect it either way.
+  A cleaner test would need either much larger N (to average out the
+  depth-variance noise) or a way to hold thinking depth constant that this
+  mission doesn't currently have.
+- Real-API spend: 12 trials at up to 6000 tokens each (~35K tokens total,
+  cache-read, effort=high) — roughly $3-5.
+
 ## Rejected / Superseded Hypotheses
 
 - **VPN exit-country geo-mirroring** — hypothesized that Anthropic might route
@@ -818,11 +868,13 @@ as the original F11 mistake, just discovered in a new context.
   fully explained by `thinking.display` defaulting to `"omitted"` (F9).
 - ~~Does `thinking.display` exist as a request-settable field~~ — **RESOLVED,
   see F9**: yes, confirmed request-settable, `"omitted"`/`"summarized"`,
-  streaming-TTFT-only effect (no change to total tokens or cost). **Still
-  open**: the actual A/B has not been run — measure streaming
-  time-to-first-visible-text-token with `display: "omitted"` vs
-  `"summarized"`, holding effort/thinking-type/prompt fixed, to confirm the
-  documented benefit materializes for us and to size it.
+  streaming-TTFT-only effect (no change to total tokens or cost).
+  ~~The actual A/B~~ — **RUN, but INCONCLUSIVE, see F19** (TASK-018): N=6/mode,
+  medians within 3% of each other, both conditions dominated by the same
+  bimodal adaptive-thinking-depth variance. Neither confirms nor refutes F9's
+  documented benefit; would need much larger N or a way to hold thinking
+  depth constant (which this mission doesn't currently have — see F15) to
+  isolate a possibly-small transmission-level effect.
 - **Does `token-efficient-tools-2026-03-28` measurably reduce input tokens
   and/or wall-clock on a tool-call-heavy synthetic history?**
 - **Does 1h vs 5m cache TTL reduce prefill/TTFT *variance* across a
@@ -1016,6 +1068,18 @@ as the original F11 mistake, just discovered in a new context.
 
 ## Changelog
 
+- 2026-07-17 (TASK-018, coordinator-run serial experiment): Added
+  `--thinking-display` flag (`bench/synthetic_multiturn_test.py`), ran the
+  streaming TTFT A/B (`display:"omitted"` vs `"summarized"`, N=6/mode,
+  randomized order). Landed **F19**: inconclusive — the flag works correctly
+  (mechanism confirmed) but `adaptive` thinking's own depth variance (a
+  bimodal fast/slow pattern in both conditions) swamps any transmission-level
+  TTFT effect; medians within 3% of each other. Notable meta-finding: the
+  natural fix (hold thinking depth constant via `budget_tokens`) doesn't work
+  because F15 already proved that field isn't enforced. Real-API spend: 12
+  trials, ~35K tokens (cache-read, effort=high), roughly $3-5. This closes
+  the planq backlog down to 1 remaining ticket (TASK-013, needs real
+  wall-clock idle time, deferred to next wave/fork).
 - 2026-07-17 (post-compaction wave: TASK-019/020/021/012/016/015, 2-fork wave
   + coordinator-run serial experiments): Dispatched 2 parallel worktree-isolated
   prep forks (no live spend, file-disjoint from each other): one built

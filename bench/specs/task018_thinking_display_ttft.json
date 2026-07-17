@@ -1,0 +1,82 @@
+{
+  "prompt": "List exactly 60 distinct, real, verifiable facts about deep-sea creatures. One fact per line. No headers, no numbering, no commentary.",
+  "mode": "stream",
+  "thinking": "adaptive",
+  "effort": "high",
+  "max_tokens": 6000,
+  "cache_ttl": "1h",
+  "conditions": [
+    {
+      "label": "display-omitted",
+      "args": {
+        "thinking_display": "omitted"
+      }
+    },
+    {
+      "label": "display-summarized",
+      "args": {
+        "thinking_display": "summarized"
+      }
+    },
+    {
+      "label": "display-omitted",
+      "args": {
+        "thinking_display": "omitted"
+      }
+    },
+    {
+      "label": "display-omitted",
+      "args": {
+        "thinking_display": "omitted"
+      }
+    },
+    {
+      "label": "display-summarized",
+      "args": {
+        "thinking_display": "summarized"
+      }
+    },
+    {
+      "label": "display-omitted",
+      "args": {
+        "thinking_display": "omitted"
+      }
+    },
+    {
+      "label": "display-summarized",
+      "args": {
+        "thinking_display": "summarized"
+      }
+    },
+    {
+      "label": "display-summarized",
+      "args": {
+        "thinking_display": "summarized"
+      }
+    },
+    {
+      "label": "display-summarized",
+      "args": {
+        "thinking_display": "summarized"
+      }
+    },
+    {
+      "label": "display-summarized",
+      "args": {
+        "thinking_display": "summarized"
+      }
+    },
+    {
+      "label": "display-omitted",
+      "args": {
+        "thinking_display": "omitted"
+      }
+    },
+    {
+      "label": "display-omitted",
+      "args": {
+        "thinking_display": "omitted"
+      }
+    }
+  ]
+}
