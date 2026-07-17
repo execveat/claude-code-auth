@@ -45,5 +45,8 @@ tags: [serial]
 verification:
   - Results + verdict appended to docs/THROUGHPUT_RESEARCH.md, explicitly correcting or reconfirming F11
 acceptance: []
-status: open
+status: completed
+resolution: 'RESOLVED definitively: no throughput difference, stream vs nonstream. Fixed-output-length (800 tok, all 32 trials) + randomized order, N=16/mode -- median wall_s 11.46 vs 11.47s, Monte Carlo permutation p=0.99. docs/THROUGHPUT_RESEARCH.md F11 update.'
 created: '2026-07-17T02:32:19'
+updated: '2026-07-17T03:41:15'
+completed_at: '2026-07-17T03:41:15'

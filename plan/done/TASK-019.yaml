@@ -29,5 +29,8 @@ tags: [serial]
 verification:
   - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving F2/this Open Question definitively
 acceptance: []
-status: open
+status: completed
+resolution: Manual budget_tokens CONFIRMED NOT ENFORCED -- 1024 vs 32000 (31x) produced byte-identical behavior (both 100% thinking, truncated at same max_tokens ceiling). Resolves F2's open question. docs/THROUGHPUT_RESEARCH.md F15.
 created: '2026-07-17T01:29:25'
+updated: '2026-07-17T03:41:15'
+completed_at: '2026-07-17T03:41:15'

@@ -17,5 +17,8 @@ tags: [serial]
 verification:
   - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
 acceptance: []
-status: open
+status: completed
+resolution: 'inference_geo closed to this account: HTTP 400 ''inference_geo is not supported for this organization type.'' Same family as F5/F3''s org/billing gates. docs/THROUGHPUT_RESEARCH.md F17.'
 created: '2026-07-17T01:16:35'
+updated: '2026-07-17T03:41:15'
+completed_at: '2026-07-17T03:41:15'

@@ -27,5 +27,17 @@ tags: [serial]
 verification:
   - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
 acceptance: []
+notes:
+  - at: '2026-07-17T03:41:15'
+    text: 'Still open, needs a new --thinking-display {omitted,summarized} CLI flag
+
+  added to bench/synthetic_multiturn_test.py''s build_thinking_block()
+
+  before the TTFT A/B can run. No conflict now that TASK-020''s session-reuse
+
+  edits to the same file are merged -- next in line for this file.
+
+  '
 status: open
 created: '2026-07-17T01:29:25'
+updated: '2026-07-17T03:41:15'

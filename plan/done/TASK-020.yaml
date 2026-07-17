@@ -50,8 +50,8 @@ notes:
   will run the real live A/B afterward once the capability merges.
 
   '
-status: assigned
-assigned_to: fork-task020
-assigned_at: '2026-07-17T03:01:21'
+status: completed
+resolution: 'Connection/session reuse: no detectable effect (N=10/condition, 2.29s vs 2.33s median wall_s, IQRs overlap heavily). Capability built+merged (edfe080), live A/B run. docs/THROUGHPUT_RESEARCH.md F14.'
 created: '2026-07-17T02:32:19'
-updated: '2026-07-17T03:01:21'
+updated: '2026-07-17T03:41:15'
+completed_at: '2026-07-17T03:41:15'

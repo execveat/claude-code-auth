@@ -30,8 +30,8 @@ notes:
   to the same harness file) -- implementation deferred to a follow-up wave.
 
   '
-status: assigned
-assigned_to: fork-task015
-assigned_at: '2026-07-17T03:01:21'
+status: completed
+resolution: 'Structured-output cold-vs-warm: suggestive (3/3 pairs favor warm faster; cleanest pair shows warm doing MORE work in LESS time), not yet a clean effect size (n=3, uncontrolled length -- API rejects minItems/maxItems != 0/1, a new finding folded into F7). docs/THROUGHPUT_RESEARCH.md F18.'
 created: '2026-07-17T01:16:35'
-updated: '2026-07-17T03:01:21'
+updated: '2026-07-17T03:41:15'
+completed_at: '2026-07-17T03:41:15'

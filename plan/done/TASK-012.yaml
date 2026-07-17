@@ -17,5 +17,8 @@ tags: [serial]
 verification:
   - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
 acceptance: []
-status: open
+status: completed
+resolution: 'redact-thinking-2026-02-12 confirmed a no-op: byte-identical response shape with/without the beta header. Empty visible thinking is fully explained by thinking.display=omitted (F9), not this beta. docs/THROUGHPUT_RESEARCH.md F16.'
 created: '2026-07-17T01:16:35'
+updated: '2026-07-17T03:41:15'
+completed_at: '2026-07-17T03:41:15'

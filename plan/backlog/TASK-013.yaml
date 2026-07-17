@@ -27,5 +27,17 @@ tags: [serial]
 verification:
   - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
 acceptance: []
+notes:
+  - at: '2026-07-17T03:41:15'
+    text: 'Still open. Only remaining ticket needing genuine real-wall-clock idle
+
+  time (gaps straddling the 5m cache TTL boundary) -- best run as its own
+
+  dedicated fork or coordinator slice with real sleeps, not parallelizable
+
+  with other live-API work sharing the same checkout.
+
+  '
 status: open
 created: '2026-07-17T01:16:35'
+updated: '2026-07-17T03:41:15'
