@@ -56,5 +56,8 @@ verification:
   - bench/run_sweep.py --dry-run <spec> prints the planned trial list without any network call
   - bench/analyze_results.py against a small hand-written fixture JSONL prints correct per-group medians
 acceptance: []
-status: open
+status: assigned
+assigned_to: wave2-sweep-tooling
+assigned_at: '2026-07-17T01:18:08'
 created: '2026-07-17T01:16:35'
+updated: '2026-07-17T01:18:08'

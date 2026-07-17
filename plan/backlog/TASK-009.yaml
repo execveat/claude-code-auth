@@ -37,5 +37,8 @@ tags: [research]
 verification:
   - Findings appended to docs/THROUGHPUT_RESEARCH.md's Open Questions or Confirmed Findings as appropriate, with citations
 acceptance: []
-status: open
+status: assigned
+assigned_to: wave2-research
+assigned_at: '2026-07-17T01:18:08'
 created: '2026-07-17T01:16:35'
+updated: '2026-07-17T01:18:08'

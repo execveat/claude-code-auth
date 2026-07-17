@@ -29,5 +29,8 @@ verification:
   - New test in tests/test_manager.py exercises the refresh path without a 404
   - bench/synthetic_multiturn_test.py works with a manager built WITHOUT the refresh_margin_ms=60_000 workaround
 acceptance: []
-status: open
+status: assigned
+assigned_to: wave2-refresh-fix
+assigned_at: '2026-07-17T01:18:08'
 created: '2026-07-17T01:16:35'
+updated: '2026-07-17T01:18:08'
