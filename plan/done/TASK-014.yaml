@@ -27,5 +27,11 @@ tags: [serial]
 verification:
   - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
 acceptance: []
-status: open
+notes:
+  - at: '2026-07-17T02:38:37'
+    text: Both external peers independently ranked concurrency as the top remaining experiment before this ran. Tested same-process thread concurrency only (not separate OS processes) -- deemed sufficient since the server sees identical HTTP traffic either way; noted as a lower-priority follow-up in F13's caveats.
+status: completed
+resolution: 'F13 landed: no detectable per-request throughput degradation up to N=16 simultaneous calls (individual tok/s stayed 56-74, matching N=1 baseline 64.2); aggregate scaled ~13.4x. Single most actionable lever this mission found. See docs/THROUGHPUT_RESEARCH.md F13 + bench/results/concurrency.jsonl (commit d495add).'
 created: '2026-07-17T01:16:35'
+updated: '2026-07-17T02:38:37'
+completed_at: '2026-07-17T02:38:37'
