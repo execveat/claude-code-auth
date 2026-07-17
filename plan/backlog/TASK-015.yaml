@@ -19,5 +19,19 @@ tags: [serial]
 verification:
   - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
 acceptance: []
-status: open
+notes:
+  - at: '2026-07-17T03:01:21'
+    text: 'Dispatching a read-only/design fork to investigate output_config.format
+
+  (structured outputs) wire shape and propose a cold-vs-warm schema test
+
+  design. No code changes this wave (avoids contention with TASK-020''s edits
+
+  to the same harness file) -- implementation deferred to a follow-up wave.
+
+  '
+status: assigned
+assigned_to: fork-task015
+assigned_at: '2026-07-17T03:01:21'
 created: '2026-07-17T01:16:35'
+updated: '2026-07-17T03:01:21'

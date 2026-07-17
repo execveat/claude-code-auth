@@ -39,5 +39,19 @@ tags: [serial]
 verification:
   - Results + verdict appended to docs/THROUGHPUT_RESEARCH.md
 acceptance: []
-status: open
+notes:
+  - at: '2026-07-17T03:01:21'
+    text: 'Dispatching a worktree-isolated fork to implement connection/session-reuse
+
+  capability in bench/synthetic_multiturn_test.py (requests.Session pooling),
+
+  validated via --dry-run only (no live spend, no fixture needed). Coordinator
+
+  will run the real live A/B afterward once the capability merges.
+
+  '
+status: assigned
+assigned_to: fork-task020
+assigned_at: '2026-07-17T03:01:21'
 created: '2026-07-17T02:32:19'
+updated: '2026-07-17T03:01:21'
