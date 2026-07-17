@@ -1,0 +1,29 @@
+id: TASK-025
+title: 'EXP: warm cached-context length''s effect on decode tok/s, independent of caching'
+description: 'F4 established caching per se doesn''t touch decode speed. This is a different
+
+  question: does the raw LENGTH of a warm prefill phase (0K/50K/358K) have any
+
+  measurable knock-on effect on the decode phase that follows it, regardless of
+
+  cache hit/miss? Surfaced by the final external peer-review pass (2026-07-17).
+
+  '
+workstream: experiments
+priority: 25
+depends: []
+scope:
+  - Randomized sweep at 0K/50K/358K warm-prefix sizes, fixed output length
+tags: [peer-review]
+touches: [bench/]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md as a new finding
+acceptance: []
+notes:
+  - at: '2026-07-17T05:41:55'
+    text: 'Built bench/context_length_decode_test.py (3 conditions: ctx_min ~2K tok, ctx_50k ~50K tok, ctx_358k ~358K tok; N=3 cache-hit measurement calls each). Landed F24 in docs/THROUGHPUT_RESEARCH.md: ctx_50k vs ctx_358k decode tok/s medians 85.2 vs 85.0 (ranges 83.9-90.7 vs 84.5-87.1, near-total overlap) -- clean null result across a 7x context-length range, extending F4. ctx_min directionally lower (median 73.5) but confounded by a response-shape difference (end_turn at 283-367 tokens vs max_tokens truncation), disclosed honestly. Also found+fixed a real harness bug: thinking=disabled was omitting the thinking field rather than sending {type:disabled} explicitly, which does NOT reliably suppress server-side reasoning (8/9 initial trials burned their whole 3000-token budget on invisible redacted thinking) -- fixed in bench/synthetic_multiturn_test.py''s build_thinking_block. Gate green (ruff + 11/11 pytest).'
+status: completed
+resolution: 'F24 landed (docs/THROUGHPUT_RESEARCH.md, Confirmed Findings + Exec Summary #22 + Changelog): warm-context length shows no measurable decode-tok/s effect across 50K-358K tokens (medians 85.2 vs 85.0 tok/s); bonus fix to synthetic_multiturn_test.py''s thinking-disabled mode.'
+created: '2026-07-17T04:38:43'
+updated: '2026-07-17T05:41:55'
+completed_at: '2026-07-17T05:41:55'

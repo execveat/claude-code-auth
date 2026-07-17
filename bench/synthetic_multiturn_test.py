@@ -94,7 +94,16 @@ def build_messages(trailing_prompt, cache_ttl):
 
 def build_thinking_block(args):
     if args.thinking == "disabled":
-        return None
+        # Send the field EXPLICITLY -- omitting `thinking` entirely (the
+        # pre-2026-07-17 behavior) does NOT reliably suppress server-side
+        # reasoning. TASK-025 found Sonnet 5 can still spontaneously spend
+        # its ENTIRE max_tokens budget on invisible (redacted) thinking for
+        # a moderately-complex generation prompt even with no `thinking`
+        # field sent at all -- confirmed via a direct explicit-vs-omitted
+        # A/B (usage.output_tokens_details.thinking_tokens: ~3000/3000 with
+        # the field omitted vs. a clean 0/500 with `{"type":"disabled"}`
+        # sent explicitly). See docs/THROUGHPUT_RESEARCH.md F24.
+        return {"type": "disabled"}
     if args.thinking == "enabled":
         block = {"type": "enabled", "budget_tokens": args.thinking_budget}
     elif args.thinking == "adaptive":

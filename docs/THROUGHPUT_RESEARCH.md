@@ -214,6 +214,16 @@ Two headline results carried forward from before this autonomous pass:
     cost trap when naively combining this mission's two biggest levers
     (F13's concurrency + prompt caching): fix is a single cheap warmup call
     before firing the concurrent batch. See F23.
+22. **Warm cached-context LENGTH (independent of cache hit/miss) shows no
+    measurable effect on decode-phase tok/s across a 7x range (~50K to
+    ~358K tokens)** — a clean extension of F4's "caching doesn't touch
+    decode" finding to a second, independent variable (raw prefill length
+    itself). Medians 0.2 tok/s apart, ranges almost fully overlapping. A
+    real harness bug was found and fixed en route: `thinking="disabled"`
+    previously omitted the `thinking` field rather than sending it
+    explicitly, and omitting it does NOT reliably suppress server-side
+    reasoning — now fixed to always send `{"type":"disabled"}` explicitly.
+    See F24.
 
 ## Confirmed Findings
 
@@ -1062,6 +1072,93 @@ disabled, `max_tokens:50`.
   N× a single cache-write, roughly $4-6 (comparable to F15's cost, this
   mission's prior largest single-experiment spend).
 
+### F24. Warm cached-context LENGTH shows no measurable effect on decode-phase tok/s across a 7x range — a clean extension of F4's null result (2026-07-17, TASK-025, mission's LAST ticket)
+Peer-review-surfaced follow-up, deliberately distinct from F4: F4 established
+that cache STATUS (hit vs miss) doesn't affect decode speed. This asks
+whether raw prefill LENGTH itself — holding cache status fixed at "warm
+hit" — has any effect on the decode phase that follows it (plausible
+mechanism: a larger KV cache could slow per-decode-step attention cost,
+independent of whether that KV cache was freshly written or read from a
+server-side cache). New tool `bench/context_length_decode_test.py`: three
+context-length conditions (`ctx_min` ~2K tokens, a deterministic filler
+block kept just above Anthropic's practical minimum cacheable-prefix
+length; `ctx_50k` ~50K tokens, `bench/fixtures/synthetic_history.json`
+truncated to a contiguous 61-turn prefix; `ctx_358k`, the full untruncated
+358K-token history) — each isolated with a unique `uuid4()` marker (same
+technique as F20/F23), warmed with one throwaway call, then measured across
+N=3 cache-HIT calls per condition (`thinking` genuinely disabled — see the
+harness-bug note below — `max_tokens=3000`, streaming mode for `ttft_any_ms`).
+Decode-phase tok/s = total output tokens / (wall_ms − ttft_any_ms), i.e. all
+generation activity after the first content delta, excluding prefill/TTFT.
+
+| condition | n | decode tok/s range | median | stop_reason | cache status (all measurement calls) |
+|---|---|---|---|---|---|
+| `ctx_min` (~2K tok) | 3 | 71.0 – 90.5 | 73.5 | `end_turn` (283–367 output tokens — see caveat) | clean cache_read, 0 cache_creation |
+| `ctx_50k` (~50K tok) | 3 | 83.9 – 90.7 | 85.2 | `max_tokens` (3000 output tokens) | clean cache_read, 0 cache_creation |
+| `ctx_358k` (~358K tok) | 3 | 84.5 – 87.1 | 85.0 | `max_tokens` (3000 output tokens) | clean cache_read, 0 cache_creation |
+
+- **Headline, clean result: across a 7x range of warm cached-context length
+  (~50K to ~358K tokens), decode-phase tok/s is statistically
+  indistinguishable** — `ctx_50k` and `ctx_358k`'s ranges almost fully
+  overlap (medians 0.2 tok/s apart) despite one condition's prefix being
+  more than 7x longer than the other's. This directly extends F4's finding
+  (cache hit/miss doesn't touch decode speed) to a second, independent
+  variable: prefill LENGTH itself, at fixed cache-hit status, also doesn't
+  measurably touch decode speed, at least across this tested range.
+- **`ctx_min` is directionally lower (median 73.5 vs ~85) but the evidence is
+  muddied, not clean, and should NOT be read as "shorter context decodes
+  slower."** Its 3 measurement calls all stopped naturally at `end_turn`
+  after only 283–367 output tokens — never reaching the same `max_tokens`
+  truncation the other two conditions hit — almost certainly because the
+  synthetic 2-turn seed conversation (a placeholder "acknowledged, filler
+  content noted" assistant turn) primed the model toward a different,
+  shorter kind of response than the 50K/358K conditions' real conversational
+  seeds did, not because of context length per se. A much shorter
+  measurement window is also inherently noisier. `ctx_min`'s own range
+  (71.0–90.5) still fully overlaps both other conditions', so even at face
+  value this is not strong evidence of a real effect — but the response-shape
+  confound means this leg of the experiment cannot cleanly speak to the
+  length question at all. A rerun with a same-shape (real-conversation-style)
+  minimal-length seed would be needed to close this gap cleanly.
+- **Real harness bug found and fixed en route, independent of the main
+  finding**: `synthetic_multiturn_test.py`'s `thinking="disabled"` mode
+  (`build_thinking_block`, now line 96) previously OMITTED the `thinking`
+  field entirely rather than sending it explicitly. Empirically, omitting
+  the field does NOT reliably suppress server-side reasoning — the first
+  (buggy) run of this experiment showed Sonnet 5 spontaneously spending its
+  ENTIRE 3000-token budget on invisible, REDACTED thinking in 8 of 9 initial
+  trials (`output_tokens_details.thinking_tokens` ≈ 2999–3000 of 3000), with
+  zero visible text ever streamed. Worse, a fully-redacted thinking block's
+  only client-visible event (a `signature_delta`) arrives essentially
+  simultaneously with `message_stop` — not incrementally — which collapsed
+  `wall_ms − ttft_any_ms` to near-zero and produced nonsensical
+  multi-million-tok/s artifacts on the first attempt (visible in git history
+  of this experiment's own development, not in the final numbers above).
+  Confirmed via a direct A/B: `thinking` field omitted → `thinking_tokens`
+  ≈3000/3000; `thinking: {"type":"disabled"}` sent explicitly →
+  `thinking_tokens`: 0/500, clean. Fixed at the shared-harness level
+  (`build_thinking_block` now always sends `{"type":"disabled"}` explicitly
+  for this mode) since every OTHER tool in `bench/` that requests
+  `thinking="disabled"` inherits the same fix. Prior findings using this
+  mode were essentially all trivial low-complexity prompts (e.g. "reply with
+  exactly the word OK", `max_tokens:50`) where spontaneous reasoning is very
+  unlikely to trigger — this bug most plausibly manifests only for
+  moderately-complex generation tasks under `thinking="disabled"`, which
+  before this fix was effectively unique to this experiment; not re-auditing
+  every prior F1-F23 finding for this (out of scope for this ticket), but
+  flagging it here for visibility.
+- **Honest limitation**: n=3/condition is a pilot sample, no formal
+  statistical test run — the `ctx_50k`/`ctx_358k` null result is clean
+  enough not to need one (near-total range overlap, medians 0.2 tok/s
+  apart), but `ctx_min`'s confound (above) means the floor end of the
+  length range remains genuinely untested cleanly.
+- Real-API spend: 12 calls total (3 conditions × (1 warmup + 3 measurement)),
+  cache-write cost paid once per condition (~2K + ~77K + ~358K tokens =
+  negligible + ~$0.29 + ~$1.34 at the 1.25x/5m write rate) plus generation
+  cost for up to 3000×9 output tokens — roughly $2-3 total, plus a handful
+  of small debug/diagnostic calls made while isolating the thinking-mode
+  bug above (all well under $1 combined).
+
 ## Rejected / Superseded Hypotheses
 
 - **VPN exit-country geo-mirroring** — hypothesized that Anthropic might route
@@ -1420,6 +1517,35 @@ disabled, `max_tokens:50`.
   remains deliberately deferred as filed future work — the most
   "academic"/lowest-payoff of the 4 peer-review-surfaced questions, and
   correctly left for a future session rather than rushed here.
+- 2026-07-17 (TASK-025, mission's LAST ticket, post-self-compaction resume):
+  built `bench/context_length_decode_test.py` and ran it — three warm
+  cached-context-length conditions (`ctx_min` ~2K tok, `ctx_50k` ~50K tok,
+  `ctx_358k` ~358K tok), N=3 cache-hit measurement calls each. Landed
+  **F24**: decode-phase tok/s is statistically indistinguishable between
+  `ctx_50k` and `ctx_358k` (medians 85.2 vs 85.0 tok/s, ranges almost fully
+  overlapping) — a clean extension of F4's "caching doesn't touch decode"
+  finding to a second, independent variable (raw prefill length itself,
+  holding cache-hit status fixed). `ctx_min` was directionally lower but
+  the evidence is muddied by a response-shape confound (its measurement
+  calls stopped at `end_turn` after 283-367 tokens rather than hitting the
+  same `max_tokens` ceiling), disclosed honestly rather than overclaimed.
+  Found and fixed a real, independent harness bug en route:
+  `synthetic_multiturn_test.py`'s `thinking="disabled"` mode was omitting
+  the `thinking` field entirely rather than sending it explicitly, and
+  omitting it does NOT reliably suppress server-side reasoning — the first
+  (buggy) run showed 8/9 trials spontaneously spending their ENTIRE
+  3000-token budget on invisible redacted thinking despite `thinking` never
+  being requested, corrupting the decode-rate measurement into nonsensical
+  multi-million-tok/s artifacts (a fully-redacted thinking block's only
+  client-visible SSE event arrives at stream-end, not incrementally,
+  collapsing the TTFT-to-wall_ms window used to isolate the decode phase).
+  Fixed at the shared-harness level (`build_thinking_block` now always
+  sends `{"type":"disabled"}` explicitly) — confirmed via a direct A/B
+  (thinking_tokens ~3000/3000 omitted vs. 0/500 explicit). This was the
+  backlog's last open ticket; the mission is now substantially complete.
+  Real-API spend: ~$2-3 for the clean final run, plus a handful of small
+  diagnostic calls made while isolating the thinking-mode bug (well under
+  $1 combined).
 - 2026-07-17 (TASK-022, dedicated fork): Tested the peer-review-surfaced
   HTTP/2 multiplexing hypothesis against F13's own open caveat (does a
   single shared connection recover the 13.4x-not-16x sub-linear scaling at
