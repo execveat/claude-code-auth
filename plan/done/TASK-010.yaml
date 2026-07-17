@@ -23,5 +23,11 @@ tags: [serial]
 verification:
   - Results + summary table appended to docs/THROUGHPUT_RESEARCH.md
 acceptance: []
-status: open
+notes:
+  - at: '2026-07-17T02:02:25'
+    text: Also fixed a real bug in bench/analyze_results.py (median_iqr collapsed to fake zero-width IQR for n<4, this project's default trial count) and discovered effort:max needs max_tokens>=20000 to avoid silent truncation. Unblocks TASK-011.
+status: completed
+resolution: 'F10 landed: effort sweep resolved — thinking_frac 2%->82%, wall-clock 15s->65s, tok/s rises 69->101 low->max. See docs/THROUGHPUT_RESEARCH.md F10 + bench/results/effort_sweep_full.jsonl + bench/results/effort_max_retest.jsonl (commit 87482d2).'
 created: '2026-07-17T01:16:35'
+updated: '2026-07-17T02:02:25'
+completed_at: '2026-07-17T02:02:25'
