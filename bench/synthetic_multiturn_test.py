@@ -96,10 +96,15 @@ def build_thinking_block(args):
     if args.thinking == "disabled":
         return None
     if args.thinking == "enabled":
-        return {"type": "enabled", "budget_tokens": args.thinking_budget}
-    if args.thinking == "adaptive":
-        return {"type": "adaptive"}
-    raise ValueError(f"unknown thinking mode {args.thinking!r}")
+        block = {"type": "enabled", "budget_tokens": args.thinking_budget}
+    elif args.thinking == "adaptive":
+        block = {"type": "adaptive"}
+    else:
+        raise ValueError(f"unknown thinking mode {args.thinking!r}")
+    thinking_display = getattr(args, "thinking_display", None)
+    if thinking_display:
+        block["display"] = thinking_display
+    return block
 
 
 def build_body(messages, args):
@@ -352,6 +357,17 @@ def parse_args():
         "default as silently contradicting this project's own recommendation.)",
     )
     p.add_argument("--thinking-budget", type=int, default=8000)
+    p.add_argument(
+        "--thinking-display",
+        choices=["omitted", "summarized"],
+        default=None,
+        help="thinking.display -- 'omitted' (the confirmed Sonnet-5 default,"
+        " F9) skips streaming thinking tokens, delivering only the signature"
+        " so visible text starts sooner (streaming-TTFT-only effect, no"
+        " change to cost); 'summarized' streams readable thinking text."
+        " Default (unset) omits this field, matching current per-model"
+        " server defaults.",
+    )
     p.add_argument(
         "--effort",
         choices=["low", "medium", "high", "xhigh", "max"],
