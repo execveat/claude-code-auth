@@ -25,5 +25,11 @@ tags: [serial]
 verification:
   - Results + verdict appended to docs/THROUGHPUT_RESEARCH.md, explicitly updating or confirming the Executive Summary's streaming claim
 acceptance: []
-status: open
+notes:
+  - at: '2026-07-17T02:09:22'
+    text: This was the mission's ORIGINAL trigger question. Answered with appropriate caveats about n=6 sample size and IQR overlap on the tok/s metric (wall_s is the stronger signal).
+status: completed
+resolution: 'F11 landed: streaming is modestly FASTER, not slower (median wall_s 15.61s stream vs 18.07s nonstream, N=6/mode, effort+thinking held fixed) — refutes the earlier confounded belief. See docs/THROUGHPUT_RESEARCH.md F11 + bench/results/task011_stream_vs_nonstream.jsonl (commit a549c20).'
 created: '2026-07-17T01:16:35'
+updated: '2026-07-17T02:09:22'
+completed_at: '2026-07-17T02:09:22'
