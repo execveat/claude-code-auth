@@ -115,6 +115,56 @@ Two headline results carried forward from before this autonomous pass:
     scaled ~13.4x at N=16. Unlike Fast Mode (needs a billing change,
     unverified for us) or any single-request tuning, this needs zero
     account changes and works today. See F13.
+11. **The mission's ORIGINAL question is now DEFINITIVELY resolved: streaming
+    and non-streaming have NO throughput difference.** A properly controlled
+    redo (TASK-021) — fixed-exact-output-length design (every trial forced to
+    truncate at an identical 800 output tokens) plus randomized/interleaved
+    trial order, N=16/mode (32 total calls) — found median wall_s 11.46s
+    (nonstream) vs 11.47s (stream), a 0.006s difference, Monte Carlo
+    permutation test p=0.99. This finally closes the question F11 first
+    mis-resolved and peer review later corrected to inconclusive. Streaming's
+    only real advantage remains observability (TTFT-to-visible-text), not speed.
+12. **Manual `thinking.enabled` mode's `budget_tokens` is NOT enforced at all
+    for this OAuth traffic** — a genuinely surprising, previously-unresolved
+    finding (TASK-019, resolves F2's long-standing open question). The SAME
+    hard prompt at budget_tokens=1024 vs budget_tokens=32000 (a 31x difference)
+    produced byte-identical behavior: both hit the SAME external `max_tokens`
+    ceiling with ~100% thinking, never stopping on their own smaller or larger
+    requested budget. `budget_tokens` is accepted (no 400, consistent with F2)
+    but appears to do nothing observable — only `output_config.effort` is a
+    real, working lever for controlling thinking depth on this path. See F15.
+13. **Connection/session reuse shows no detectable effect** (TASK-020) — a
+    lever both external peer reviewers independently flagged as unconsidered.
+    Persistent-session calls were statistically indistinguishable from
+    fresh-connection-per-call ones on cheap trivial-output trials (median
+    wall_s 2.29s vs 2.33s, N=10 each, IQRs heavily overlapping). Most likely
+    because TCP/TLS handshake time is a small fraction of the ~8-12s fixed
+    overhead F10/F12 imply — the real overhead is probably server-side
+    prefill, which client-side connection reuse can't touch. See F14.
+14. **`redact-thinking-2026-02-12` is a no-op for us — confirmed, not assumed**
+    (TASK-012). With vs without this beta header (Claude Code sends it
+    unconditionally) produced byte-identical response shape on a prompt that
+    reliably provoked thinking: same content-block type (`"thinking"`), same
+    empty visible thinking text, same signature presence, same exact
+    thinking-token count, same stop_reason. The empty-visible-thinking
+    behavior seen in 100% of this mission's trials is fully explained by
+    `thinking.display` defaulting to `"omitted"` (F9) — not by this beta. See F16.
+15. **`inference_geo` is closed to us — a clean, definitive gate, not
+    ambiguous** (TASK-016): `HTTP 400: "inference_geo is not supported for
+    this organization type."` — same family as F5 (Priority Tier) and F3
+    (Fast Mode's credits gate): a real, documented feature (accepts `"us"` or
+    `"global"`, per official docs) that this OAuth/subscription account's
+    organization type cannot use at all, regardless of model. See F17.
+16. **Structured outputs (`output_config.format`) show suggestive evidence of
+    real cold-schema compile latency** (TASK-015) — 3/3 paired cold-vs-warm
+    trials favored the warm (repeated-schema) call being faster, and the one
+    cleanest pair (both ended naturally, no truncation) showed warm producing
+    MORE output tokens in LESS wall-clock than cold — the opposite of what
+    decode-rate-alone would predict, consistent with a real fixed compile-time
+    tax on first use. Small n=3 and uncontrolled output length (the API
+    rejects `minItems`/`maxItems` other than 0/1, discovered empirically) mean
+    this isn't a clean effect size yet — flagged as suggestive, not proven.
+    See F18 (also folds two doc corrections into F7).
 
 ## Confirmed Findings
 
@@ -226,18 +276,37 @@ prefix from that point forward**, forcing a fresh (expensive) cache write —
 so this beta trades context-window/cost pressure against cache-hit rate, and
 is unrelated to decode speed. Citation: platform.claude.com context-editing guide.
 
-### F7. Structured outputs / `output_config.format`: no documented decode-speed effect; grammar-compile latency is real but one-time (2026-07-17)
-GA feature (no beta header required currently on most models);
+### F7. Structured outputs / `output_config.format`: no documented decode-speed effect; grammar-compile latency is real but one-time (2026-07-17, corrected TASK-015)
+**Fully GA — no beta header needed at all, for any supported model** (corrected
+from an earlier "no beta header required currently on most models" — a design
+fork re-fetched the official doc directly and found the restriction doesn't
+exist; the deprecated `structured-outputs-2025-11-13` beta + `output_format`
+param still work "for a transition period" but are not required).
 `output_config.format = {"type":"json_schema","schema":{...}}` is genuine
-constrained/grammar decoding (not post-hoc validation-retry). Documented
-costs: (a) first use of a NEW schema pays extra latency while the grammar
-compiles — compiled grammars are cached 24h and reused across calls; (b)
-slightly higher input token count from an injected format-explanation system
-prompt. **No documented number for steady-state (warm-cache) decode tok/s
-impact in either direction** — this remains a genuine open question (see
-Open Questions), not a settled "no effect." Claude Code's own 11-beta header
-list does not include any structured-outputs beta, so the CLI's own traffic
-gives us no data point here. Citation: platform.claude.com/docs/en/build-with-claude/structured-outputs.
+constrained/grammar decoding (not post-hoc validation-retry), confirmed live
+(TASK-015, below). Documented costs: (a) first use of a NEW schema pays extra
+latency while the grammar compiles — compiled grammars are cached with a
+**sliding 24h-from-last-use TTL** (corrected from "24h flat" — each use resets
+the window; same sliding-TTL pattern worth watching for in TASK-013's cache
+work); (b) slightly higher input token count from an injected
+format-explanation system prompt. Cache invalidates if the schema *structure*
+changes or the request's tool set changes — renaming only a schema's
+`name`/`description` does NOT invalidate it. **No documented interaction
+between `output_config.format` and `output_config.effort`**, even though both
+live under the same parent object (`bench/synthetic_multiturn_test.py:122-127`)
+— composability is genuinely undocumented, not confirmed either way.
+**A real, previously-undocumented API constraint found empirically (TASK-015
+live test)**: array-type schema properties reject any `minItems`/`maxItems`
+value other than 0 or 1 — `HTTP 400: "For 'array' type, 'minItems' values
+other than 0 or 1 are not supported"` — so exact-length structured-output
+arrays can't be forced via the schema itself; length has to be controlled via
+the prompt text (imprecisely) or `max_tokens` truncation instead. **No
+documented number for steady-state (warm-cache) decode tok/s impact in either
+direction** — genuinely open; see F18 for suggestive (not yet clean) live
+evidence that cold-schema compilation adds real latency. Claude Code's own
+11-beta header list does not include any structured-outputs beta, so the
+CLI's own traffic gives us no data point here. Citation:
+platform.claude.com/docs/en/build-with-claude/structured-outputs.
 
 ### F8. `usage.output_tokens_details.thinking_tokens` — exact thinking/visible split (carried forward, confirmed pre-pass)
 Real, present-in-practice response field giving the exact split between
@@ -389,6 +458,30 @@ trials/mode, sequential execution
   That is a genuine, unconfounded advantage regardless of the throughput
   question.
 
+**UPDATE — DEFINITIVELY RESOLVED (TASK-021 redo, 2026-07-17):** The proper
+re-test this entry called for has been run, with BOTH fixes combined: (1) a
+fixed-exact-output-length design — `max_tokens:800` deliberately set below the
+prompt's natural completion length so every single trial in both modes
+truncates at the identical 800 output tokens (verified: all 32 trials show
+`output_tokens:800`, `stop_reason:"max_tokens"` — length is controlled by
+construction, not statistics); (2) randomized/interleaved condition order
+(two independent random-seeded shuffles of 8 stream + 8 nonstream labels each,
+`bench/specs/task021_interleaved_stream_vs_nonstream.json` +
+`..._batch2.json` → `bench/results/task021_interleaved.jsonl`), killing the
+time-of-day-drift confound both peers flagged. Result at N=16/mode (32 total
+calls): **median wall_s 11.46s (nonstream) vs 11.47s (stream) — a 0.006s
+difference — median total_tok_s 69.78 vs 69.74.** A Monte Carlo permutation
+test (200,000 resamples on the median difference) gives **p=0.99** — as null
+a result as this kind of test produces. (An interim N=8/mode read had shown a
+~7% stream-faster trend with p≈0.14 — not significant, but suggestive; it
+fully evaporated once N doubled to 16/mode, which is itself informative: the
+original N=6/mode belief in either direction was never adequately powered.)
+**Conclusion, no longer hedged: streaming and non-streaming have NO
+throughput difference for this workload.** The only genuine, established
+advantage of streaming remains observability (TTFT-to-visible-text) — never
+throughput. This closes the mission's original triggering question and
+TASK-021.
+
 ### F12. Thinking-token decode is measurably SLOWER than visible-text decode — refutes a competing hypothesis for F10 (2026-07-17, external-peer-review follow-up)
 External peer review proposed an alternative explanation for F10 (rising
 blended tok/s with effort): maybe thinking tokens simply decode *faster*
@@ -492,6 +585,177 @@ why N=4's aggregate looks below the N=8/N=16 trend.
   throughput) is what was tested and answered, a process-level variant is
   now a lower-priority follow-up, not a re-test of the same question.
 
+### F14. Connection/session reuse: no detectable effect (2026-07-17, TASK-020)
+Both external peer reviewers independently flagged this as a genuinely
+unconsidered lever: every trial across this whole mission made a fresh
+`requests.post()`, never reusing a TCP/TLS connection. Built the capability
+(a worktree-isolated fork added optional `session=None` params to
+`run_streaming`/`run_nonstreaming`, and a `--reuse-connection` flag to
+`run_sweep.py` that shares one `requests.Session()` across a whole sweep;
+100% backward-compatible, validated via monkeypatch — merged at `edfe080`),
+then ran the live A/B myself: `bench/specs/connection_reuse_ab.json`
+(trivial prompt "Reply with exactly the word OK...", `thinking:disabled`,
+`max_tokens:50`, cache warm) × N=10 trials each,
+`bench/results/connection_reuse_baseline.jsonl` vs `..._reuse.jsonl`.
+
+| condition | median wall_s | median total tok/s |
+|---|---|---|
+| baseline (fresh connection/call) | 2.33s (IQR 2.02-2.96) | 1.71 tok/s (IQR 1.35-1.98) |
+| `--reuse-connection` (persistent session) | 2.29s (IQR 1.87-2.56) | 1.75 tok/s (IQR 1.56-2.14) |
+
+- **No detectable effect** — the ~2% difference is well within the heavily
+  overlapping IQRs. Per-trial wall_ms inspection also found no "first call is
+  slower" pattern within the reuse condition (trial 1's wall_ms was
+  unremarkable relative to trials 2-10; the single outlier in each condition
+  landed at a random position, consistent with ordinary network jitter, not
+  a systematic cold-connection tax).
+- **Most likely explanation**: TCP+TLS handshake time is typically ~50-300ms
+  — a small fraction of the ~8-12s fixed per-request overhead F10/F12 imply
+  exists. That overhead is more plausibly server-side (prefill/queueing),
+  which client-side connection reuse structurally cannot touch. A genuine,
+  useful null result — resolves the peer-raised open question.
+- Real-API spend: 20 trivial calls (`max_tokens:50`, thinking disabled,
+  cache-warm) — negligible, well under $0.10.
+
+### F15. Manual `thinking.enabled` mode's `budget_tokens` is NOT enforced for this OAuth traffic (2026-07-17, TASK-019, resolves F2's open question)
+TASK-009 had sharpened F2's open question into a concrete disproof test: same
+complex prompt at `budget_tokens=1024` vs `budget_tokens=32000` — if
+`thinking_tokens` scales with the requested budget, manual mode is genuinely
+honored; if it stays roughly constant regardless, Sonnet 5 is silently
+ignoring it. Ran exactly this test: a genuinely hard multi-step logic puzzle
+(five-person bridge-crossing optimization, forcing real reasoning), held
+`max_tokens=20000` fixed as the only ceiling, varied only `budget_tokens`.
+
+| `budget_tokens` requested | `thinking_tokens_exact` used | `output_tokens` | `stop_reason` |
+|---|---|---|---|
+| 1024 | 20000 (100% thinking) | 20000 | `max_tokens` (truncated) |
+| 32000 | 19999 (~100% thinking) | 20000 | `max_tokens` (truncated) |
+
+- **A 31x difference in requested budget produced byte-identical behavior.**
+  Neither trial's thinking stopped anywhere near its OWN requested budget —
+  both consumed the entire external `max_tokens` ceiling as thinking, with
+  zero visible text emitted. The smaller budget (1024) didn't cap generation
+  at ~1024 tokens as its name implies; the larger budget (32000) didn't
+  produce meaningfully more thinking than the smaller one once both hit the
+  same external ceiling — the requested value made no observable difference.
+- **Independently reconfirmed by a third, incidental data point**: TASK-012's
+  probe (below, F16) used `budget_tokens=2000` with `max_tokens=3000` on a
+  moderate reasoning prompt and again saw thinking consume 100% of
+  `max_tokens` (3000/3000), truncated — a third distinct budget value, same
+  overrun pattern.
+- **Resolves F2's long-standing open question**: this is hypothesis (b) from
+  the Open Questions confirmed — Sonnet 5 (via this OAuth path) is not
+  actually being constrained by manual `budget_tokens`; it behaves as if
+  running unconstrained/adaptive-style reasoning regardless of the requested
+  cap. The field is accepted without error (no 400, consistent with F2) but
+  doesn't function as an enforced ceiling.
+- **Operational implication, strengthening Recommended Configuration**: don't
+  build anything that relies on `budget_tokens` to control cost or thinking
+  depth via manual mode on this path — it doesn't work. `output_config.effort`
+  (F1/F10) is the only confirmed-working lever for controlling thinking depth.
+- **Caveat**: n=1 per budget value (plus the 1 incidental reconfirmation) —
+  small, but the effect is qualitative and dramatic (byte-identical behavior
+  across a 31x requested-budget difference), not a marginal statistical read
+  that needs a larger N to trust.
+- Real-API spend: 2 trials at 20000 output tokens each (~40K tokens total,
+  cache-read, effort unset/manual mode) — this mission's single largest
+  per-experiment spend after TASK-010's sweep, roughly $4-6.
+
+### F16. `redact-thinking-2026-02-12` is a no-op for us — confirmed directly (2026-07-17, TASK-012)
+Tested whether this beta header (sent unconditionally by Claude Code) is what
+actually causes the empty-visible-thinking behavior seen in 100% of this
+mission's trials, or whether that's a model default independent of the beta
+(per F9: `thinking.display` defaults to `"omitted"` on Sonnet 5). Held prompt,
+model, `thinking.enabled`+`budget_tokens=2000`, and `max_tokens=3000` fixed;
+varied only presence/absence of the `redact-thinking-2026-02-12` beta header;
+inspected raw response content-block types directly (not just the harness's
+summarized stats) to see the actual shape.
+
+| | without beta | with beta |
+|---|---|---|
+| content block types | `["thinking"]` | `["thinking"]` |
+| visible thinking chars | 0 | 0 |
+| `thinking` block has `signature` | true | true |
+| `thinking_tokens_exact` | 3000 | 3000 |
+| `output_tokens` | 3000 | 3000 |
+| `stop_reason` | `max_tokens` | `max_tokens` |
+
+- **Byte-identical in every observable respect.** The beta header made zero
+  difference to content-block type, visible thinking length, signature
+  presence, token counts, or stop reason.
+- **Answers the Open Question directly**: the empty-visible-thinking behavior
+  is fully explained by `thinking.display` defaulting to `"omitted"` (F9) —
+  NOT by this beta. This doesn't rule out an invisible server-side/billing
+  effect from the beta, only that it has zero effect on response shape as
+  observed here.
+- Incidentally reconfirms F15 (see above): this trial's `budget_tokens=2000`
+  also overran to consume the full `max_tokens=3000` ceiling.
+- Real-API spend: 2 trials at 3000 output tokens each (~6K tokens, cache-read)
+  — negligible, under $1.
+
+### F17. `inference_geo` is closed to this account — a clean, definitive gate (2026-07-17, TASK-016)
+Per official docs (fetched directly): `inference_geo` accepts `"us"` or
+`"global"` (default), controls per-request inference region, and carries a
+documented 10% cost premium for `"us"` on Opus 4.6+; some models reject it
+entirely with 400. Tested directly on `claude-sonnet-5` (baseline, no field,
+vs `inference_geo:"us"`):
+
+`HTTP 400: {"type":"error","error":{"type":"invalid_request_error","message":"inference_geo is not supported for this organization type."}}`
+
+- **Definitively closed, same family as F5 (Priority Tier) and F3's credits
+  gate**: this is not a model-support restriction (the docs' 400-on-old-models
+  case) but an **organization-type** gate — this OAuth/subscription account's
+  org type cannot use `inference_geo` at all, regardless of model or value.
+  No further investigation needed; don't re-probe this unless the account's
+  org type changes.
+- Real-API spend: 1 baseline call (trivial, cache-warm) + 1 failed 400 call
+  (zero output tokens billed on a 400) — negligible.
+
+### F18. Structured-output cold-vs-warm schema-compile latency: suggestive, not yet clean (2026-07-17, TASK-015)
+A read-only/design fork verified F7's claims directly against the official
+docs (corrections folded into F7 above) and proposed a cold-vs-warm design:
+per pair, a schema with one throwaway marker property carrying a fresh UUID
+(guarantees a genuine schema-cache miss without waiting 24h) — call #1
+"cold" (novel schema), call #2 "warm" (byte-identical schema immediately
+after). Implemented the minimal harness support (`--output-schema` flag,
+`bench/synthetic_multiturn_test.py:122-127`) and ran 3 pairs live
+(`bench/results/task015_structured_output_cold_warm.json`).
+
+**A real, previously-undocumented API constraint surfaced immediately**: the
+schema's array property originally specified `minItems:15, maxItems:15` (to
+control output length) and was rejected — `HTTP 400: "For 'array' type,
+'minItems' values other than 0 or 1 are not supported"` — folded into F7.
+Without item-count schema constraints, output length varies per call purely
+by how many items the model chooses to enumerate (1604-3000 tokens observed),
+which confounds a raw wall-clock comparison — the same length-confound shape
+as the original F11 mistake, just discovered in a new context.
+
+| pair | cold wall_s / tokens / tok_s | warm wall_s / tokens / tok_s |
+|---|---|---|
+| 0 | 50.09s / 3000 (truncated) / 59.9 | 20.11s / 1820 (natural) / 90.5 |
+| 1 | 22.20s / 1604 (natural) / 72.3 | 20.29s / 1771 (natural) / 87.3 |
+| 2 | 27.28s / 1853 (natural) / 67.9 | 29.85s / 3000 (truncated) / 62.0 |
+
+- **Direction is consistent across all 3 pairs**: cold showed lower
+  effective tok/s than its paired warm call in every pair (ratios
+  cold/warm ≈ 0.66, 0.83, 1.10 — pair 2's ratio is inverted from the other
+  two because its WARM call was the one that got truncated, an artifact of
+  the uncontrolled length, not a reversal of the underlying effect).
+- **The cleanest single comparison (pair 1, neither call truncated)** is the
+  most persuasive: warm produced MORE output tokens (1771 vs 1604) in LESS
+  wall-clock (20.29s vs 22.20s) than cold — the opposite of what pure
+  decode-rate parity would predict, consistent with cold paying a real fixed
+  compile-time tax that a longer response would otherwise amortize away.
+- **Honest limitation**: n=3, uncontrolled output length (the `minItems`/
+  `maxItems` API restriction above blocks the cleanest fix — forcing exact
+  item counts via the schema itself). A follow-up with a low, deterministically-
+  truncating `max_tokens` (the same trick F11's redo used) would isolate the
+  effect size cleanly; not done this pass given time/cost.
+- **Verdict: suggestive real effect, not yet a clean number.** Consistent
+  direction across 3/3 pairs plus one length-controlled-by-luck comparison is
+  more than pure noise, but doesn't meet this mission's bar for "confirmed."
+- Real-API spend: 6 calls, ~13K output tokens total (cache-read) — under $2.
+
 ## Rejected / Superseded Hypotheses
 
 - **VPN exit-country geo-mirroring** — hypothesized that Anthropic might route
@@ -520,30 +784,16 @@ why N=4's aggregate looks below the N=8/N=16 trend.
 
 ## Open Questions
 
-- **Why does Anthropic's documented Sonnet-5 manual-thinking-mode 400
-  restriction not manifest on our OAuth traffic (F2)?** STILL UNRESOLVED as
-  of TASK-009's follow-up pass — the docs are, if anything, MORE explicit
-  than first read: the adaptive-thinking page names Sonnet 5 directly with
-  no hedging ("Availability: All models except ... Claude Sonnet 5 ...
-  rejected with a 400 error"), yet both this mission's probes and the
-  earlier 4-trial pre-compaction test return 200 with real nonzero
-  thinking_tokens. TASK-009 surfaced a sharper, not-yet-run disproof test:
-  **both trials that got a 200 used a TRIVIAL prompt** (`thinking_tokens:
-  0` in this pass's own two probes) — a 200-with-zero-thinking is
-  consistent with manual mode being genuinely honored AND with the server
-  silently coercing an invalid `type` into adaptive-like behavior. The
-  earlier 4-trial test DID use substantive prompts with real nonzero
-  thinking_tokens, but nobody has checked whether the *magnitude* scaled
-  with the requested `budget_tokens` (proving true compliance) or stayed
-  roughly constant regardless of it (implying silent coercion). Proposed
-  test, not yet run: same complex prompt at `budget_tokens=1024` vs
-  `budget_tokens=32000` — if thinking_tokens scales with the budget, manual
-  mode is genuinely honored for us; if it doesn't, Sonnet 5 is silently
-  ignoring `enabled` and running adaptive-equivalent behavior under a
-  lenient, non-erroring OAuth path. cc-xray cross-check (TASK-009):
-  confirmed zero OAuth-vs-API-key branching anywhere near thinking-mode
-  logic, and zero changelog evidence of auth-method-specific enforcement —
-  so "OAuth is simply more lenient" remains unconfirmed, not refuted.
+- ~~Why does Anthropic's documented Sonnet-5 manual-thinking-mode 400
+  restriction not manifest on our OAuth traffic (F2)?~~ — **RESOLVED, see
+  F15 (TASK-019)**: ran the exact disproof test this entry proposed
+  (`budget_tokens=1024` vs `32000`, same hard prompt, same `max_tokens`
+  ceiling) — both produced byte-identical behavior (100% thinking, truncated
+  at the same external ceiling, neither respecting its own requested budget).
+  Confirmed: Sonnet 5 accepts manual mode without error but does NOT enforce
+  `budget_tokens` as a real cap — it runs unconstrained/adaptive-style
+  regardless of the requested value. "OAuth is more lenient" is now more
+  precisely stated as "OAuth's manual-mode budget is accepted but non-functional."
 - ~~Does `output_config.effort` measurably change tok/s, thinking-token
   fraction, and wall-clock, holding everything else fixed?~~ — **RESOLVED,
   see F10**: yes, substantially — thinking_frac 2%→82% low→max, wall-clock
@@ -554,22 +804,18 @@ why N=4's aggregate looks below the N=8/N=16 trend.
   not a "thinking decodes faster" story. `max_tokens` headroom is a real
   operational consideration at `effort:"max"` (6000 was shown insufficient;
   20000 sufficed in the retest, but the true minimum is unmeasured).
-- **Streaming vs non-streaming, CONTROLLED for effort/thinking** — the
-  original question that triggered this whole mission. **STILL OPEN.**
-  This mission's first attempt (F11) claimed "streaming is modestly
-  faster," but external peer review found the comparison was confounded by
-  an ~11% output-length difference between conditions (verified directly
-  against the raw data, plus an independent permutation test, p≈0.33 — not
-  significant at n=6/mode). Neither direction is currently well-supported.
-  **Filed as TASK-021**: re-test with either a fixed-exact-output-length
-  prompt design, a much larger N, or randomized/interleaved trial order (or
-  some combination) to remove the confound properly.
-- **Does `redact-thinking-2026-02-12` (sent unconditionally by Claude Code)
-  actually cause the redacted/empty-visible-thinking behavior we've seen in
-  100% of trials so far, or is that a model default independent of the
-  beta?** Proposed test: identical request with vs without this beta header,
-  holding thinking mode fixed, compare `ttft_thinking_ms`/visible thinking
-  chars.
+- ~~Streaming vs non-streaming, CONTROLLED for effort/thinking~~ — **RESOLVED,
+  see F11's TASK-021 update above**: fixed-exact-output-length design (all 32
+  trials truncated at an identical 800 tokens) + randomized/interleaved order,
+  N=16/mode. Median wall_s 11.46s vs 11.47s, p=0.99 (Monte Carlo permutation).
+  **No throughput difference, in either direction.** Streaming's only real
+  advantage is observability (TTFT-to-visible-text), never speed. This closes
+  the mission's original triggering question.
+- ~~Does `redact-thinking-2026-02-12` (sent unconditionally by Claude Code)
+  actually cause the redacted/empty-visible-thinking behavior~~ — **RESOLVED,
+  see F16**: no — confirmed a no-op via direct A/B (byte-identical response
+  shape with vs without the header). The empty-visible-thinking behavior is
+  fully explained by `thinking.display` defaulting to `"omitted"` (F9).
 - ~~Does `thinking.display` exist as a request-settable field~~ — **RESOLVED,
   see F9**: yes, confirmed request-settable, `"omitted"`/`"summarized"`,
   streaming-TTFT-only effect (no change to total tokens or cost). **Still
@@ -600,22 +846,27 @@ why N=4's aggregate looks below the N=8/N=16 trend.
   above N=16), behavior under sustained load over minutes, and a
   separate-OS-process variant (lower priority — see F13's caveats).
 - **Does grammar-constrained decoding (structured outputs, warm cache) change
-  steady-state decode tok/s at all** — no data in either direction (F7).
-- **Does `inference_geo` (an explicit, documented per-request region-override
+  steady-state decode tok/s at all** — **PARTIALLY ADDRESSED, see F18**:
+  suggestive evidence (3/3 pairs, one length-controlled-by-luck comparison)
+  that cold-schema compilation adds real latency, but n=3 and uncontrolled
+  output length (the API rejects `minItems`/`maxItems` != 0/1) mean this
+  isn't a clean effect size yet. A follow-up with a deterministically-
+  truncating low `max_tokens` (same trick as F11's redo) would settle it.
+- ~~Does `inference_geo` (an explicit, documented per-request region-override
   field, distinct from the already-closed client-IP VPN question) change
-  TTFT or decode speed?**
+  TTFT or decode speed?~~ — **RESOLVED, see F17**: closed to us — `HTTP 400:
+  "inference_geo is not supported for this organization type."` Same family
+  as F5/F3's org/billing gates. No further investigation needed.
 - **Does `cache-diagnosis-2026-04-07` do anything observable** — zero
   documentation found anywhere; propose sending it alone on an otherwise
   normal request and diffing the response/usage shape against a baseline.
-- **Does connection/session reuse (a persistent HTTP session or HTTP/2
+- ~~Does connection/session reuse (a persistent HTTP session or HTTP/2
   connection pool, vs this harness's current fresh `requests.post` per
-  trial) measurably reduce per-call fixed overhead?** Raised independently
-  by BOTH external peer reviewers (convergent, different vendors) — this
-  investigation has never varied transport-level connection reuse at all,
-  and F10/F12 together imply a real ~8-12s fixed per-request overhead
-  (connection setup + TLS + prefill) that a persistent connection could
-  plausibly shrink. This is a previously entirely-unconsidered lever, not a
-  refinement of an existing one. **Filed as TASK-020.**
+  trial) measurably reduce per-call fixed overhead?~~ — **RESOLVED, see
+  F14**: no detectable effect (N=10/condition, medians 2.29s vs 2.33s,
+  heavily overlapping IQRs). Most likely because TCP/TLS handshake is a
+  small fraction of the true fixed overhead, which is probably server-side
+  prefill — unreachable by client-side connection reuse.
 
 ## Recommended Configuration
 
@@ -630,18 +881,31 @@ why N=4's aggregate looks below the N=8/N=16 trend.
   than Fast Mode's unverified 2.5x. Ceiling above N=16 is untested; if
   higher concurrency is needed in practice, verify it holds at that scale
   first rather than assuming linear scaling continues indefinitely.
-- **Streaming vs non-streaming: no throughput preference established yet**
-  (F11, corrected after external peer review) — the mission's original
-  attempt at this comparison was confounded by an output-length difference
-  between conditions; re-test pending (TASK-021). Streaming's one
-  clearly-supported advantage is observability (a real, measurable
-  TTFT-to-visible-text via `ttft_text_ms`, unavailable in non-streaming) —
-  prefer it for that reason, not for an unestablished speed advantage.
+- **Streaming vs non-streaming: DEFINITIVELY no throughput difference**
+  (F11, resolved via TASK-021's properly-controlled redo — fixed output
+  length + randomized order, N=16/mode, p=0.99). Prefer streaming anyway,
+  but ONLY for its genuine, unconfounded advantage: observability (a real,
+  measurable TTFT-to-visible-text via `ttft_text_ms`, unavailable in
+  non-streaming) — never for a speed advantage, because there isn't one.
 - **Prefer `thinking: {"type":"adaptive"}` + `output_config.effort` over
-  manual `budget_tokens`** for new experiments and for any convenience helper
-  shipped in this library, since it's very likely what Claude Code itself
-  actually sends on Sonnet-5-class models, and it's the officially-supported
-  path going forward — even though manual mode still empirically works today (F2).
+  manual `budget_tokens` — not just a style preference, `budget_tokens` is
+  CONFIRMED NON-FUNCTIONAL for us** (F15/TASK-019): a 31x difference in
+  requested budget (1024 vs 32000) produced byte-identical thinking-token
+  consumption. `effort` is the only confirmed-working lever for controlling
+  thinking depth via this OAuth path. Manual mode still doesn't 400 (F2), but
+  don't build anything that relies on `budget_tokens` actually capping cost
+  or depth — it doesn't.
+- **Connection/session reuse doesn't help — don't bother** (F14): no
+  detectable difference between fresh-connection-per-call and a persistent
+  `requests.Session()`, N=10/condition. The true fixed overhead F10/F12 imply
+  is most likely server-side (prefill), not client-side connection setup.
+- **`inference_geo` is unusable on this account — don't build around it**
+  (F17): `HTTP 400: "inference_geo is not supported for this organization
+  type."`, closed regardless of model or value, same family as F5/F3.
+- **`redact-thinking-2026-02-12` is a no-op — irrelevant to any helper's
+  design** (F16): confirmed byte-identical response shape with vs without
+  it. The real (and only) cause of empty visible thinking is `thinking.display`
+  defaulting to `"omitted"` (F9).
 - **`effort: "high"` (the documented default) is a sound default for typical
   interactive use** (F10): low/medium/high/xhigh are statistically
   indistinguishable in tok/s (~68-76 tok/s) and low/medium/high cluster in a
@@ -752,6 +1016,36 @@ why N=4's aggregate looks below the N=8/N=16 trend.
 
 ## Changelog
 
+- 2026-07-17 (post-compaction wave: TASK-019/020/021/012/016/015, 2-fork wave
+  + coordinator-run serial experiments): Dispatched 2 parallel worktree-isolated
+  prep forks (no live spend, file-disjoint from each other): one built
+  connection/session-reuse capability (`--reuse-connection` on
+  `bench/run_sweep.py`, merged at `edfe080`), one investigated structured
+  outputs and designed a cold/warm test (zero repo mutations, pure
+  design/report). Then ran 6 real-API experiments serially from the
+  coordinator: **F14** (connection reuse — null result), **F15** (manual
+  `budget_tokens` confirmed NOT enforced — resolves F2's long-standing open
+  question, arguably this wave's most important finding since it directly
+  changes the Recommended Configuration's guidance), **F16** (redact-thinking
+  beta confirmed no-op), **F17** (`inference_geo` closed — org-type gated),
+  **F18** (structured-output cold/warm — suggestive, not clean), and a full
+  **definitive resolution of F11**/TASK-021 (the mission's ORIGINAL question):
+  streaming vs non-streaming, properly controlled this time (fixed-exact-
+  output-length + randomized/interleaved order, N=16/mode) — genuinely NO
+  throughput difference (p=0.99), closing the question for good. Also folded
+  two doc corrections into F7 (structured outputs fully GA, sliding 24h cache
+  TTL) and discovered a new, previously-undocumented API constraint
+  (`minItems`/`maxItems` other than 0/1 rejected on array-type schema
+  properties). planq: TASK-019/020/021/012/016/015 closed; TASK-018
+  (thinking.display TTFT, needs a new CLI flag) and TASK-013 (cache TTL
+  session-gap, needs real wall-clock idle time) remain open. Real-API spend
+  this wave: ~$8-12 (F15's two 20K-token trials were the largest single cost;
+  everything else was cheap/trivial-output or cache-read). Process note: the
+  TASK-020 fork was handed a worktree of the WRONG repo (mirrors the
+  coordinator's own `~/Projects/arr`, a known cross-repo isolation gotcha) and
+  self-corrected by making its own worktree on the right repo — no coordinator
+  intervention needed, but confirms this gotcha is still live and forks should
+  be briefed to expect and route around it.
 - 2026-07-17 (TASK-014, coordinator-run, fully isolated): New tool
   `bench/concurrency_test.py` (thread-pool based). Tested N=1/2/4/8/16
   simultaneous same-account calls. Landed F13: no detectable per-request
