@@ -68,7 +68,7 @@ DEFAULT_ARGS = {
     ),
     "model": "claude-sonnet-5",
     "max_tokens": 20000,
-    "thinking": "enabled",
+    "thinking": "adaptive",
     "thinking_budget": 8000,
     "effort": None,
     "speed": None,

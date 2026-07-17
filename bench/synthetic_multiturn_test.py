@@ -184,7 +184,18 @@ def run_streaming(messages, args):
                         t_first_text = now
                     text_chars += len(delta.get("text", ""))
             elif etype == "message_delta":
-                usage_final = evt.get("usage") or usage_final
+                # MERGE, don't replace: message_delta's usage object carries
+                # updated output_tokens/output_tokens_details but does NOT
+                # repeat message_start-only fields like service_tier -- a
+                # wholesale replace here silently drops them from every
+                # streaming trial's usage record (found via external peer
+                # review, 2026-07-17: confirmed empirically, 6/6 streaming
+                # trials in bench/results/task011_stream_vs_nonstream.jsonl
+                # had usage.service_tier == "" while their non-streaming
+                # siblings correctly showed "standard").
+                delta_usage = evt.get("usage")
+                if delta_usage:
+                    usage_final = {**(usage_final or {}), **delta_usage}
                 if usage_final and "output_tokens" in usage_final:
                     output_tokens = usage_final["output_tokens"]
                 stop_reason = (evt.get("delta") or {}).get("stop_reason", stop_reason)
@@ -319,10 +330,15 @@ def parse_args():
     p.add_argument(
         "--thinking",
         choices=["enabled", "adaptive", "disabled"],
-        default="enabled",
-        help="thinking.type -- 'enabled' is the legacy manual mode (needs "
-        "--thinking-budget), 'adaptive' is the newer mode paired with "
-        "--effort, 'disabled' omits the thinking block entirely",
+        default="adaptive",
+        help="thinking.type -- 'adaptive' (the default) is the newer mode "
+        "paired with --effort, matches docs/THROUGHPUT_RESEARCH.md's "
+        "Recommended Configuration, and is very likely what Claude Code "
+        "itself sends on Sonnet-5-class models; 'enabled' is the legacy "
+        "manual mode (needs --thinking-budget); 'disabled' omits the "
+        "thinking block entirely. (Default was 'enabled' until 2026-07-17 "
+        "-- changed via external peer review, which flagged the previous "
+        "default as silently contradicting this project's own recommendation.)",
     )
     p.add_argument("--thinking-budget", type=int, default=8000)
     p.add_argument(

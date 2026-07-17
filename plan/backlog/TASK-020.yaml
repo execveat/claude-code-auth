@@ -1,0 +1,43 @@
+id: TASK-020
+title: 'EXP: connection/session-reuse effect on fixed per-request overhead'
+description: 'F10/F12 together imply a real ~8-12s fixed per-request overhead
+
+  (connection setup, TLS, prefill) that''s being amortized away at high
+
+  effort. This mission has never varied transport-level connection reuse
+
+  at all -- every trial does a fresh requests.post() (new TCP+TLS per
+
+  call). Raised INDEPENDENTLY by both external peer reviewers
+
+  (opus-4.8, gpt-5.6-sol) during the 2026-07-17 peer-review pass -- a
+
+  genuinely new lever, not a refinement of an existing one.
+
+  Proposed test: compare fresh one-shot requests.post() calls (current
+
+  harness behavior) against a persistent requests.Session() /
+
+  connection-pooled client, same prompt/effort/thinking held fixed,
+
+  N>=5 trials each. Measure wall_s and tok/s; if a persistent session
+
+  measurably shrinks wall_s for short (low-effort) calls specifically,
+
+  that further confirms the fixed-overhead story and gives a concrete,
+
+  actionable throughput win for any real helper tooling.
+
+  '
+workstream: experiments
+priority: 60
+depends: []
+scope:
+  - bench/synthetic_multiturn_test.py
+  - bench/specs/
+tags: [serial]
+verification:
+  - Results + verdict appended to docs/THROUGHPUT_RESEARCH.md
+acceptance: []
+status: open
+created: '2026-07-17T02:32:19'

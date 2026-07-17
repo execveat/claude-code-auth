@@ -1,0 +1,49 @@
+id: TASK-021
+title: 'EXP: properly controlled streaming vs non-streaming re-test (F11 redo)'
+description: 'F11 (2026-07-17) originally claimed streaming was modestly faster,
+
+  but external peer review (2 independent models) found the comparison
+
+  confounded by an ~11% output-length difference between conditions
+
+  (nonstream mean 1249.2 vs stream mean 1106.5 output tokens) --
+
+  verified directly against the raw data plus an independent
+
+  permutation test (p=0.33, not significant at n=6/mode). This is the
+
+  mission''s ORIGINAL trigger question and it remains genuinely open.
+
+  Proposed redo, addressing the confound directly: either (a) a
+
+  fixed-exact-output-length prompt design (e.g. "reply with exactly
+
+  these N words" or a task with a hard, verifiable length ceiling that
+
+  the model reliably hits), (b) a much larger N (20-30/mode) so the
+
+  length variance averages out and a real rate difference could clear
+
+  the noise floor, or (c) randomized/interleaved trial order (both
+
+  peers separately flagged that this mission''s sweeps run in fixed
+
+  condition order, confounding condition with time-of-day server-load
+
+  drift) -- ideally combine (a) or (b) with (c). Hold effort and
+
+  thinking mode fixed as before.
+
+  '
+workstream: experiments
+priority: 65
+depends: []
+scope:
+  - bench/run_sweep.py
+  - bench/specs/
+tags: [serial]
+verification:
+  - Results + verdict appended to docs/THROUGHPUT_RESEARCH.md, explicitly correcting or reconfirming F11
+acceptance: []
+status: open
+created: '2026-07-17T02:32:19'

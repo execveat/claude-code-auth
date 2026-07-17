@@ -90,15 +90,23 @@ Two headline results carried forward from before this autonomous pass:
    decode throughput (total tok/s) *increases* with effort rather than
    degrading (~69-76 tok/s at low/medium/high/xhigh vs ~100 tok/s at max),
    most likely because a longer, largely-uninterrupted generation amortizes
-   fixed per-request overhead better than a short one. A real operational
-   gotcha surfaced too: `effort:"max"` needs generous `max_tokens` headroom
-   (>=20000) or it silently truncates mid-thought. See F10.
-9. **The mission's ORIGINAL question — streaming vs non-streaming — is
-   answered: streaming is modestly FASTER, not slower.** A controlled N=6/mode
-   comparison (effort and thinking mode held fixed) shows streaming's median
-   wall-clock ~14% shorter (15.61s vs 18.07s) for comparable output size,
-   directly refuting an earlier confounded 4-trial result that had suggested
-   the opposite. See F11.
+   fixed per-request overhead better than a short one — confirmed directly
+   (F12): thinking tokens decode ~1.8-1.9x SLOWER than visible text, so
+   overhead dilution has to overcome an opposing effect to produce the
+   observed rise. A real operational consideration surfaced too:
+   `effort:"max"` needs generous `max_tokens` headroom or it truncates
+   mid-thought (reported via `stop_reason`, not silent, but easy to miss).
+   See F10, F12.
+9. **The mission's ORIGINAL question — streaming vs non-streaming — remains
+   OPEN**, corrected after external peer review. An initial attempt (F11)
+   claimed streaming was modestly faster, but two independent external
+   models (different vendors) found the comparison confounded by an ~11%
+   output-length difference between conditions — verified directly against
+   the raw data and with an independent permutation test (p≈0.33, not
+   significant at n=6/mode). Streaming's one clearly-established advantage
+   is observability (a real, measurable time-to-first-visible-text-token),
+   not throughput. A properly controlled re-test is filed as TASK-021. See
+   F11, F12.
 
 ## Confirmed Findings
 
@@ -276,74 +284,146 @@ zero-width "IQR" — see Methodology Notes).
   rises correspondingly (15s → 65s median) for the identical prompt.
 - **A genuine surprise**: raw decode throughput (total tok/s) *increases*
   with effort rather than degrading — low/medium/high/xhigh cluster ~68-76
-  tok/s, `max` reaches ~100 tok/s. Likely explanation (consistent with this
-  doc's original Executive Summary point #2, carried from the prior
-  session): a short total-output turn pays the same fixed per-request
-  overhead (connection setup, initial TTFT) as a long one, so that overhead
-  is a *larger fraction* of a short run's wall time; `max`'s much longer,
-  largely-uninterrupted thinking-token stream amortizes that fixed cost far
-  better, closer to true steady-state decode speed. Not yet independently
-  isolated (would need a fixed-output-length control across effort levels)
-  but a plausible, doctrine-consistent explanation, not a new unexplained
-  anomaly — flagged as a follow-up, not asserted as proven.
-- **`max_tokens` headroom is a real operational gotcha at high effort**: the
-  FIRST `effort:"max"` run (`max_tokens:6000`, same ceiling as every other
-  condition) hit `stop_reason:"max_tokens"` in 2 of 3 trials — the model was
-  still mid-thought, not naturally done (raw data still in
+  tok/s, `max` reaches ~100 tok/s. **Original hypothesis (fixed-overhead
+  amortization on longer generations) — CONFIRMED as the dominant mechanism,
+  and a competing hypothesis proposed by external peer review (thinking
+  tokens simply decode faster than visible text) was tested directly and
+  REFUTED. See F12** for the measured breakdown: thinking-token decode is
+  actually *slower* than visible-text decode (~90-96 vs ~172-176 tok/s), so
+  the rising blended rate is explained entirely by fixed per-request
+  overhead (~8-12s, largely connection/TLS/prefill, roughly constant
+  regardless of effort) becoming a smaller fraction of a longer call's wall
+  time — despite this working *against* the effect (more thinking should
+  pull the blend down, not up), overhead dilution still dominates and wins.
+- **`max_tokens` headroom is a real operational consideration at high
+  effort**: the FIRST `effort:"max"` run (`max_tokens:6000`, same ceiling as
+  every other condition) hit `stop_reason:"max_tokens"` in 2 of 3 trials —
+  the model was still mid-thought, not naturally done (raw data still in
   `effort_sweep_full.jsonl`, but NOT what's reported in the table above; the
   clean retest at `max_tokens:20000`, all 3 trials `stop_reason:"end_turn"`,
   is). **Any tooling/helper that lets a caller select `effort:"max"` (or
-  likely `"xhigh"` — one of its 3 trials already reached 71% thinking_frac
-  at only a 6000-token ceiling) must default to a generous `max_tokens`
-  (>=20000) or the response will silently truncate mid-thought with no
-  error** — a real footgun `claude-code-auth` helpers should guard against,
-  not just document.
+  possibly `"xhigh"` — one of its 3 trials already reached 71% thinking_frac
+  at only a 6000-token ceiling) should default to a generous `max_tokens` or
+  risk truncating mid-thought** — a real footgun worth guarding against in
+  helper tooling, though not a *silent* one: `stop_reason:"max_tokens"` does
+  explicitly report it (a caller that checks `stop_reason` will see it; one
+  that doesn't may not notice). Correction from an earlier draft of this
+  finding, per external peer review: the data prove only that 6000 was
+  insufficient for `max`, not that 20000 is the true minimum requirement —
+  `xhigh` never truncated even at 6000, so the actual threshold between
+  them is unmeasured.
 - **`xhigh` showed much higher within-condition variance than low/medium/high**
   (thinking_frac range 0.05-0.71 vs a tight 0.00-0.09 band for the lower
   three) — worth a larger-N follow-up if budget allows; not investigated
   further this pass.
+- **Caveat, per external peer review**: n=3/condition is a small sample and
+  one of the four non-`max` conditions' three trials was a cache-write (see
+  Methodology Notes) — this widens the reported range but, since aggregation
+  uses the *median* not the mean, does not shift the reported point
+  estimates for these particular runs (verified: the cache-write trial in
+  each affected condition was never the median of its 3).
 
-This directly informs Recommended Configuration below and TASK-011
-(controlled streaming-vs-non-streaming), which holds effort fixed at `high`
-— the documented Claude Code default and the condition most representative
-of real usage, per this table indistinguishable in tok/s from low/medium.
+This directly informs Recommended Configuration below. TASK-011's original
+design held effort fixed at `high` for the streaming-vs-nonstream test
+(the documented Claude Code default, and per this table indistinguishable
+in tok/s from low/medium) — but see F11 below for why that result needed
+correcting.
 
-### F11. Streaming vs non-streaming, CONTROLLED for effort/thinking — streaming is modestly FASTER, not slower (2026-07-17, TASK-011)
-This is the mission's original trigger question, finally answered properly.
-The earlier (pre-mission) 4-trial result suggesting "non-streaming is
-faster" was confounded by uncontrolled thinking-token proportion — this run
-holds `effort:"high"`, `thinking:"adaptive"`, and the prompt fixed, N=6
-trials/mode, sequential execution (`bench/specs/task011_stream_vs_nonstream.json`
--> `bench/results/task011_stream_vs_nonstream.jsonl`).
+### F11. Streaming vs non-streaming, CONTROLLED for effort/thinking — INCONCLUSIVE, corrected after external peer review (2026-07-17, TASK-011)
+**This finding was originally reported as "streaming is modestly faster,"
+resolving the mission's original trigger question. External peer review
+(two independent frontier models, `claude-opus-4-8-thinking-high` and
+`gpt-5.6-sol-high` via `cursor-agent`) found a real, verified confound that
+the original write-up missed, and the corrected conclusion is: this
+comparison did not establish a throughput difference either way.** Kept as
+"F11" (not silently rewritten) per this doc's own self-healing convention —
+the mistake and its correction are both instructive.
 
-| mode | median wall_s | median total tok/s | median thinking_frac | visible-phase tok/s |
+Design: `effort:"high"`, `thinking:"adaptive"`, prompt fixed, N=6
+trials/mode, sequential execution
+(`bench/specs/task011_stream_vs_nonstream.json` ->
+`bench/results/task011_stream_vs_nonstream.jsonl`).
+
+| mode | median wall_s | median total tok/s | mean output_tokens |
+|---|---|---|---|
+| nonstream | 18.07s (IQR 15.90-19.27) | 67.43 (IQR 66.20-73.18) | 1249.2 |
+| stream | 15.61s (IQR 14.99-16.52) | 70.95 (IQR 69.39-72.91) | 1106.5 |
+
+- **The confound, verified directly against the raw data**: nonstream
+  trials happened to produce ~11.4% MORE output tokens on average than
+  stream trials (1249.2 vs 1106.5) — `adaptive` thinking's own per-call
+  variance, not a mode effect. The original write-up's wall-clock comparison
+  ("~14% shorter") is mostly explained by this length difference, not by
+  streaming being faster — a shorter response takes less wall time
+  regardless of mode. The original write-up claimed the output-token
+  *ranges* overlapping ruled this out; both peers correctly pointed out this
+  is wrong — overlapping ranges say nothing about differing distribution
+  centers, which is exactly what's driving the gap here.
+- **The rate metric (`total_tok_s`) already divides out length**, and it
+  shows only a small, not-statistically-supported difference: medians 67.43
+  vs 70.95 (stream ~5% higher), IQRs overlapping substantially. An exact
+  permutation test on the median difference (computed independently, not
+  taken from either peer) gives **p≈0.33** (924 possible 6-vs-6 splits of
+  the 12 trials) — nowhere near significant at this sample size. Both
+  external peers independently reached the same qualitative conclusion
+  (one computed p≈0.40 via a different method) — convergent evidence from
+  two different vendors plus an independent from-scratch check.
+- **Honest conclusion**: **no throughput difference between streaming and
+  non-streaming was established** by this experiment, in either direction.
+  This also means the *original* pre-mission "non-streaming is faster"
+  belief is not actually refuted by this data either — both directions are
+  genuinely open. A proper re-test needs a fixed-exact-output-length design
+  (or a much larger N with interleaved/randomized trial order) — filed as
+  **TASK-021**.
+- **What remains solidly true**: streaming gives strictly more observability
+  — a real, measurable time-to-first-visible-text-token (`ttft_text_ms`,
+  ~1.6-3.0s across these trials) that non-streaming cannot report at all.
+  That is a genuine, unconfounded advantage regardless of the throughput
+  question.
+
+### F12. Thinking-token decode is measurably SLOWER than visible-text decode — refutes a competing hypothesis for F10 (2026-07-17, external-peer-review follow-up)
+External peer review proposed an alternative explanation for F10 (rising
+blended tok/s with effort): maybe thinking tokens simply decode *faster*
+than visible/constrained text, so a higher thinking-fraction mechanically
+raises the blend — a different, untested mechanism from this doc's
+"fixed-overhead amortization" story. Tested directly: 2 streaming trials at
+`effort:"max"`, `thinking:"adaptive"`, `max_tokens:20000`
+(`bench/specs/thinking_vs_visible_phase_rate.json` ->
+`bench/results/thinking_vs_visible_phase_rate.jsonl`), using the streaming
+harness's per-phase timing (`ttft_text_ms` marks the boundary between
+"still thinking" and "now emitting visible text").
+
+| trial | thinking tokens | thinking-phase tok/s (approx) | visible tokens | visible-phase tok/s (approx) |
 |---|---|---|---|---|
-| nonstream | 18.07s (IQR 15.90-19.27) | 67.43 (IQR 66.20-73.18) | 0.05 (IQR 0.05-0.07) | n/a |
-| stream | 15.61s (IQR 14.99-16.52) | 70.95 (IQR 69.39-72.91) | 0.06 (IQR 0.04-0.06) | 79.07 (IQR 78.47-82.30) |
+| 1 | 7218 | 90.4 | 1569 | 172.2 |
+| 2 | 7705 | 95.8 | 1489 | 175.7 |
 
-- **Streaming is modestly faster, not slower**, under a fair comparison:
-  ~14% shorter median wall-clock (15.61s vs 18.07s) for output of comparable
-  size (raw `output_tokens` ranged 1048-1213 for stream vs 1083-1451 for
-  nonstream — not a shorter-response artifact explaining the gap) and
-  comparable thinking-fraction (~5-6% both modes). This directly **refutes**
-  the earlier confounded belief (now in Rejected/Superseded below).
-- **Caveat on strength of evidence**: n=6/mode is a modest sample, and the
-  two conditions' IQRs for total tok/s overlap substantially (stream's
-  69.39-72.91 sits almost entirely inside nonstream's 66.20-73.18) — the
-  *median* difference is real and directionally consistent, but this is not
-  an overwhelming statistical margin. The wall_s gap is the more convincing
-  signal (IQRs barely touch at the edges: nonstream floor 15.90s vs stream
-  ceiling 16.52s).
-- **The interesting number is `visible_tps_phase`**: 79.07 tok/s measured
-  only during the visible-text-streaming phase (after the first visible
-  text token, via the real `ttft_text_ms` field, which ranged
-  ~1.6-3.0s across trials) — noticeably higher than either mode's *blended*
-  total tok/s. Streaming lets you *see* the pure post-thinking decode rate
-  directly; non-streaming can only report the blended average.
-- **Practical implication**: for this mission's throughput goal, there is no
-  reason to prefer non-streaming for raw speed — streaming is at least as
-  fast and gives strictly more observability (TTFT-to-visible-text as a
-  distinct, measurable number) for no apparent cost.
+- **The peers' hypothesis is REFUTED, in the opposite direction**: visible
+  text decodes roughly **1.8-1.9x FASTER** than thinking tokens (~172-176
+  vs ~90-96 tok/s), not slower. Thinking tokens are the *slow* phase, not
+  the fast one.
+- **Caveat on the thinking-phase number**: `thinking.display` defaults to
+  `"omitted"` on Sonnet 5 (F9), so thinking content is never streamed as
+  visible `thinking_delta` events — `ttft_thinking_ms` (time-to-first-
+  thinking-token) is therefore unobservable in this harness, and the
+  "thinking-phase" duration used above (`ttft_text_ms` from request start)
+  necessarily also includes the initial connection/prefill overhead, not
+  purely thinking-generation time. This makes the reported thinking-phase
+  rate a conservative *underestimate* of the true thinking-only decode
+  rate. Back-of-envelope correction using the ~8-12s fixed-overhead
+  estimate implied by F10's low-effort trials still leaves thinking decode
+  meaningfully slower than visible decode (~100-106 vs ~172-176 tok/s) —
+  the qualitative conclusion is robust to this caveat, even though the
+  exact numbers aren't perfectly clean.
+- **This actually strengthens F10's amortization story rather than
+  competing with it**: since thinking decodes *slower*, a higher
+  thinking-fraction should, all else equal, pull the blended rate DOWN, not
+  up. That F10's blended rate still rises substantially with effort despite
+  this headwind means fixed-overhead dilution isn't just *a* plausible
+  explanation — it has to be strong enough to overcome an opposing effect,
+  which is a more decisive confirmation than the original write-up claimed.
+- Also incidentally confirms the streaming `usage.service_tier` bug (below,
+  Methodology Notes) is fixed: both trials correctly show `"standard"`.
 
 ## Rejected / Superseded Hypotheses
 
@@ -361,11 +441,15 @@ trials/mode, sequential execution (`bench/specs/task011_stream_vs_nonstream.json
   `claude-sonnet-5`. Kept here explicitly so nobody re-reads the docs, gets
   scared off manual mode, and re-derives the same (refuted-for-us) caution.
 - **"Non-streaming is faster than streaming"** — an earlier, pre-mission
-  4-trial result suggested this, but it held effort/thinking uncontrolled.
-  Refuted by F11's controlled N=6/mode comparison: streaming was modestly
-  *faster* (median wall_s 15.61s vs 18.07s) once effort and thinking mode
-  were held fixed. Kept here so nobody re-derives the old, confounded belief
-  from the earlier data.
+  4-trial result suggested this, but it held effort/thinking uncontrolled,
+  so it's not trustworthy as stated. This mission's own attempted
+  controlled re-test (F11) was ALSO found to be confounded (by output
+  length, not by thinking/effort this time) after external peer review —
+  so this hypothesis is not so much "refuted" as **genuinely still open**;
+  neither direction has a clean, controlled result behind it yet. See F11
+  and TASK-021 (the proper re-test). Kept here (rather than deleted) so
+  nobody re-derives the old belief from the confounded 4-trial data, or
+  mistakes F11's now-corrected write-up for a clean refutation.
 
 ## Open Questions
 
@@ -397,15 +481,22 @@ trials/mode, sequential execution (`bench/specs/task011_stream_vs_nonstream.json
   fraction, and wall-clock, holding everything else fixed?~~ — **RESOLVED,
   see F10**: yes, substantially — thinking_frac 2%→82% low→max, wall-clock
   15s→65s median, and total tok/s counterintuitively *rises* with effort
-  (~69-76 → ~100 tok/s). `max_tokens` headroom is a real gotcha at
-  `effort:"max"`/`"xhigh"` (silent truncation below ~20000).
-- ~~Streaming vs non-streaming, CONTROLLED for effort/thinking~~ — the
-  original question that triggered this whole mission. **RESOLVED, see
-  F11**: streaming is modestly FASTER (median wall_s 15.61s vs 18.07s,
-  N=6/mode), refuting the earlier confounded "non-streaming is faster"
-  belief. Effect size is real but not overwhelming at n=6 (see F11's
-  IQR-overlap caveat) — a larger-N replication would firm this up further
-  if budget allows, but the direction is now established.
+  (~69-76 → ~100 tok/s). Mechanism confirmed directly (F12): thinking tokens
+  decode *slower* than visible text (~90-96 vs ~172-176 tok/s), so the
+  rising blend is fixed-overhead dilution overcoming an opposing effect,
+  not a "thinking decodes faster" story. `max_tokens` headroom is a real
+  operational consideration at `effort:"max"` (6000 was shown insufficient;
+  20000 sufficed in the retest, but the true minimum is unmeasured).
+- **Streaming vs non-streaming, CONTROLLED for effort/thinking** — the
+  original question that triggered this whole mission. **STILL OPEN.**
+  This mission's first attempt (F11) claimed "streaming is modestly
+  faster," but external peer review found the comparison was confounded by
+  an ~11% output-length difference between conditions (verified directly
+  against the raw data, plus an independent permutation test, p≈0.33 — not
+  significant at n=6/mode). Neither direction is currently well-supported.
+  **Filed as TASK-021**: re-test with either a fixed-exact-output-length
+  prompt design, a much larger N, or randomized/interleaved trial order (or
+  some combination) to remove the confound properly.
 - **Does `redact-thinking-2026-02-12` (sent unconditionally by Claude Code)
   actually cause the redacted/empty-visible-thinking behavior we've seen in
   100% of trials so far, or is that a model default independent of the
@@ -447,17 +538,27 @@ trials/mode, sequential execution (`bench/specs/task011_stream_vs_nonstream.json
 - **Does `cache-diagnosis-2026-04-07` do anything observable** — zero
   documentation found anywhere; propose sending it alone on an otherwise
   normal request and diffing the response/usage shape against a baseline.
+- **Does connection/session reuse (a persistent HTTP session or HTTP/2
+  connection pool, vs this harness's current fresh `requests.post` per
+  trial) measurably reduce per-call fixed overhead?** Raised independently
+  by BOTH external peer reviewers (convergent, different vendors) — this
+  investigation has never varied transport-level connection reuse at all,
+  and F10/F12 together imply a real ~8-12s fixed per-request overhead
+  (connection setup + TLS + prefill) that a persistent connection could
+  plausibly shrink. This is a previously entirely-unconsidered lever, not a
+  refinement of an existing one. **Filed as TASK-020.**
 
 ## Recommended Configuration
 
 *(firming up as experiments land)*
 
-- **Prefer streaming over non-streaming** (F11) — modestly faster
-  (~14% shorter median wall-clock in a controlled N=6/mode comparison) and
-  strictly more observable (a real, measurable TTFT-to-visible-text via
-  `ttft_text_ms`, unavailable in non-streaming). There is no throughput
-  reason to prefer non-streaming for this mission's goal.
-
+- **Streaming vs non-streaming: no throughput preference established yet**
+  (F11, corrected after external peer review) — the mission's original
+  attempt at this comparison was confounded by an output-length difference
+  between conditions; re-test pending (TASK-021). Streaming's one
+  clearly-supported advantage is observability (a real, measurable
+  TTFT-to-visible-text via `ttft_text_ms`, unavailable in non-streaming) —
+  prefer it for that reason, not for an unestablished speed advantage.
 - **Prefer `thinking: {"type":"adaptive"}` + `output_config.effort` over
   manual `budget_tokens`** for new experiments and for any convenience helper
   shipped in this library, since it's very likely what Claude Code itself
@@ -534,9 +635,73 @@ trials/mode, sequential execution (`bench/specs/task011_stream_vs_nonstream.json
   eat the cache-write cost on a near-zero-output request, so every real
   measurement trial is a cache-read. Not done retroactively here since the
   actual spend was still modest (see Changelog cost tally).
+- **A real bug in `bench/synthetic_multiturn_test.py`'s streaming usage
+  assembly, found via external peer review and fixed 2026-07-17**: the
+  `message_delta` SSE handler did `usage_final = evt.get("usage") or
+  usage_final` — a wholesale REPLACE, not a merge. Anthropic's
+  `message_delta` usage payload carries updated `output_tokens` etc. but
+  does not repeat `message_start`-only fields like `service_tier`, so every
+  streaming trial in this mission silently lost `service_tier` from its
+  recorded usage (verified: all 6 `stream-high` trials in
+  `task011_stream_vs_nonstream.jsonl` show `service_tier: ""`, while their
+  non-streaming siblings correctly show `"standard"`). Fixed to merge
+  (`usage_final = {**(usage_final or {}), **delta_usage}`); verified fixed
+  via a fresh streaming call showing `service_tier: "standard"` (see F12's
+  data). **F5's "100% standard, zero variance" claim was only ever actually
+  verified for non-streaming trials** — worth re-confirming for streaming
+  specifically if it matters later, though no reason to expect it differs.
+- **`bench/run_sweep.py`'s `DEFAULT_ARGS` and `bench/synthetic_multiturn_test.py`'s
+  own `--thinking` argparse default both defaulted to the legacy manual
+  `"enabled"` mode**, silently contradicting this doc's own Recommended
+  Configuration (prefer `adaptive`+`effort`). Every actual experiment this
+  mission ran explicitly overrode `thinking` in its spec, so no existing
+  result was affected — but the mismatch was a latent footgun for any
+  future spec that omits `thinking`. Fixed 2026-07-17 (external peer
+  review): both now default to `"adaptive"`.
+- **External peer review, 2026-07-17**: consulted `claude-opus-4-8-thinking-high`
+  and `gpt-5.6-sol-high` via `cursor-agent -p -f --mode ask` at this
+  mission's natural checkpoint (after F10/F11 landed), per Andrew's original
+  request for anti-cargo-cult review. `claude-fable-5-thinking-high` failed
+  with a data-retention-policy acknowledgment gate this session couldn't
+  clear non-interactively (`ActionRequiredError: Review Data Policy`) — not
+  pursued further given time constraints; 2 of 3 peers still gave
+  substantive, independently convergent findings. Every peer finding
+  reported as "confirmed" in this doc was independently re-verified against
+  the raw data or source code before being acted on — not taken on either
+  peer's word alone, same standard applied throughout this investigation to
+  Anthropic's own docs (F2). See the Changelog entry below for the full
+  list of corrections this produced.
 
 ## Changelog
 
+- 2026-07-17 (external peer review pass, natural checkpoint after F10/F11):
+  Consulted 2 of 3 planned external peers (opus-4.8, gpt-5.6-sol; fable-5
+  blocked by a data-policy gate) with an explicit anti-cargo-cult framing.
+  Both independently found the SAME real flaw in F11 (output-length confound
+  between stream/nonstream conditions) — verified first-hand against the raw
+  data (nonstream mean 1249.2 vs stream mean 1106.5 output tokens) and with
+  an independent permutation test (p≈0.33). **Corrected F11 from "streaming
+  is modestly faster" (confirmed) to inconclusive** — the mission's original
+  question is reopened, re-test filed as TASK-021. Also acted on: **F12**
+  (new finding — tested and refuted the peers' alternative "thinking decodes
+  faster" hypothesis for F10; thinking is actually ~1.8-1.9x *slower* than
+  visible text, which if anything strengthens F10's fixed-overhead story);
+  fixed a real streaming-usage-merge bug that silently dropped
+  `service_tier` from every streaming trial's usage record; fixed
+  `bench/run_sweep.py`/`bench/synthetic_multiturn_test.py`'s default
+  `thinking` mode (was `"enabled"`, silently contradicting this doc's own
+  recommendation; now `"adaptive"`); added a cache-write-contamination flag
+  to `bench/analyze_results.py`'s report (mirrors the existing
+  max_tokens-truncation flag); softened two overclaims from the original
+  F10 write-up (`"silent"` truncation → truncation is reported via
+  `stop_reason`, just easy to miss; `">=20000" max_tokens requirement` →
+  only proven sufficient, not proven minimal). Filed **TASK-020**
+  (connection/session-reuse — a genuinely new lever, raised independently by
+  both peers) and **TASK-021** (properly controlled streaming-vs-nonstream
+  re-test) at appropriate priority. Real-API spend: 2 trials for F12
+  (~17.7K output tokens, effort=max, cache-read — negligible, well under
+  $1); the two peer-review CLI calls themselves are separate Cursor/OpenAI
+  billing, not Anthropic API spend, and not tracked in this tally.
 - 2026-07-17 (TASK-011, coordinator-run serial experiment): Ran the
   mission's original question properly, controlled this time: streaming vs
   non-streaming at fixed `effort:"high"` + `thinking:"adaptive"`, N=6

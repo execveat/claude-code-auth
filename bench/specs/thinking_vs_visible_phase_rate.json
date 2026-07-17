@@ -1,0 +1,11 @@
+{
+  "prompt": "List exactly 30 distinct, real, verifiable facts about deep-sea creatures. One fact per line. No headers, no numbering, no commentary.",
+  "mode": "stream",
+  "thinking": "adaptive",
+  "effort": "max",
+  "max_tokens": 20000,
+  "cache_ttl": "1h",
+  "conditions": [
+    {"label": "max-stream-phase-rate", "args": {}}
+  ]
+}

@@ -138,6 +138,11 @@ def report(groups):
         truncated = sum(
             1 for t in trials if t["result"].get("stop_reason") == "max_tokens"
         )
+        cache_writes = sum(
+            1
+            for t in trials
+            if (t["result"].get("usage") or {}).get("cache_creation_input_tokens")
+        )
         lines.append(f"=== {label} (n={n}) ===")
         lines.append(
             f"  wall_s:              {fmt(wall_med, wall_q1, wall_q3, 's', wall_iqr)}"
@@ -162,6 +167,19 @@ def report(groups):
                 "model's natural total-output length for this condition is "
                 "UNKNOWN (it wanted to keep generating). Re-run with a higher "
                 "--max-tokens for a clean natural-completion read."
+            )
+        if cache_writes:
+            lines.append(
+                f"  NOTE: {cache_writes}/{n} trial(s) paid a cache-WRITE "
+                "(cache_creation_input_tokens > 0) rather than a cheap "
+                "cache-read -- the extra prefill time is folded into wall_s, "
+                "which measurably lowers that trial's blended tok/s (found "
+                "via external peer review, 2026-07-17: 3/4 cache-write "
+                "trials in the effort sweep showed clearly lower tok/s than "
+                "same-condition cache-read trials). Doesn't affect the "
+                "median for n>=3 unless MOST trials are writes, but widens "
+                "the reported range/IQR. For a clean comparison, run a "
+                "cheap throwaway warmup call before the real batch."
             )
     return "\n".join(lines)
 

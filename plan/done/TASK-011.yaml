@@ -28,8 +28,32 @@ acceptance: []
 notes:
   - at: '2026-07-17T02:09:22'
     text: This was the mission's ORIGINAL trigger question. Answered with appropriate caveats about n=6 sample size and IQR overlap on the tok/s metric (wall_s is the stronger signal).
+  - at: '2026-07-17T02:32:19'
+    text: 'CORRECTED 2026-07-17 via external peer review (opus-4.8, gpt-5.6-sol,
+
+  independently convergent): the "streaming is modestly faster"
+
+  conclusion was confounded by an ~11% output-length difference between
+
+  conditions, verified directly against the raw data and an independent
+
+  permutation test (p=0.33, not significant). Corrected finding is
+
+  INCONCLUSIVE, not "streaming faster" -- see docs/THROUGHPUT_RESEARCH.md
+
+  F11 (rewritten in place, not silently deleted, per the doc''s own
+
+  self-healing convention) and TASK-021 (the proper re-test). The
+
+  ticket''s own verification criterion (results+verdict appended to the
+
+  doc) is still satisfied -- the verdict itself was just wrong and has
+
+  been corrected in the same location.
+
+  '
 status: completed
 resolution: 'F11 landed: streaming is modestly FASTER, not slower (median wall_s 15.61s stream vs 18.07s nonstream, N=6/mode, effort+thinking held fixed) — refutes the earlier confounded belief. See docs/THROUGHPUT_RESEARCH.md F11 + bench/results/task011_stream_vs_nonstream.jsonl (commit a549c20).'
 created: '2026-07-17T01:16:35'
-updated: '2026-07-17T02:09:22'
+updated: '2026-07-17T02:32:19'
 completed_at: '2026-07-17T02:09:22'
