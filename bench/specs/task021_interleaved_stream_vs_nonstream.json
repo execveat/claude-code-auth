@@ -1,0 +1,105 @@
+{
+  "prompt": "List exactly 60 distinct, real, verifiable facts about deep-sea creatures. One fact per line. No headers, no numbering, no commentary.",
+  "thinking": "adaptive",
+  "effort": "high",
+  "max_tokens": 800,
+  "cache_ttl": "1h",
+  "conditions": [
+    {
+      "label": "stream",
+      "args": {
+        "mode": "stream"
+      }
+    },
+    {
+      "label": "nonstream",
+      "args": {
+        "mode": "nonstream"
+      }
+    },
+    {
+      "label": "stream",
+      "args": {
+        "mode": "stream"
+      }
+    },
+    {
+      "label": "stream",
+      "args": {
+        "mode": "stream"
+      }
+    },
+    {
+      "label": "nonstream",
+      "args": {
+        "mode": "nonstream"
+      }
+    },
+    {
+      "label": "nonstream",
+      "args": {
+        "mode": "nonstream"
+      }
+    },
+    {
+      "label": "nonstream",
+      "args": {
+        "mode": "nonstream"
+      }
+    },
+    {
+      "label": "nonstream",
+      "args": {
+        "mode": "nonstream"
+      }
+    },
+    {
+      "label": "stream",
+      "args": {
+        "mode": "stream"
+      }
+    },
+    {
+      "label": "stream",
+      "args": {
+        "mode": "stream"
+      }
+    },
+    {
+      "label": "nonstream",
+      "args": {
+        "mode": "nonstream"
+      }
+    },
+    {
+      "label": "nonstream",
+      "args": {
+        "mode": "nonstream"
+      }
+    },
+    {
+      "label": "stream",
+      "args": {
+        "mode": "stream"
+      }
+    },
+    {
+      "label": "nonstream",
+      "args": {
+        "mode": "nonstream"
+      }
+    },
+    {
+      "label": "stream",
+      "args": {
+        "mode": "stream"
+      }
+    },
+    {
+      "label": "stream",
+      "args": {
+        "mode": "stream"
+      }
+    }
+  ]
+}

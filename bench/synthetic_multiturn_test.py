@@ -122,6 +122,10 @@ def build_body(messages, args):
     output_config = {}
     if args.effort:
         output_config["effort"] = args.effort
+    if getattr(args, "output_schema", None):
+        with open(args.output_schema) as f:
+            schema = json.load(f)
+        output_config["format"] = {"type": "json_schema", "schema": schema}
     if output_config:
         body["output_config"] = output_config
 
@@ -362,6 +366,12 @@ def parse_args():
     )
     p.add_argument("--service-tier", choices=["auto", "standard_only"], default=None)
     p.add_argument("--inference-geo", default=None)
+    p.add_argument(
+        "--output-schema",
+        default=None,
+        help="path to a JSON schema file; sets output_config.format="
+        "{'type':'json_schema','schema':...} (structured outputs, GA, no beta needed)",
+    )
     p.add_argument(
         "--extra-beta",
         action="append",

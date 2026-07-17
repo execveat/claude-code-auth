@@ -1,0 +1,10 @@
+{
+  "prompt": "Reply with exactly the word OK and nothing else.",
+  "mode": "nonstream",
+  "thinking": "disabled",
+  "max_tokens": 50,
+  "cache_ttl": "1h",
+  "conditions": [
+    {"label": "connection-reuse-probe", "args": {}}
+  ]
+}
