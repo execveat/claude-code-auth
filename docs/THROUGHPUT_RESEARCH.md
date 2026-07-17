@@ -82,6 +82,17 @@ Two headline results carried forward from before this autonomous pass:
    to new purchases entirely; `claude-code-auth`'s OAuth credentials have no
    such entity. `usage.service_tier` has been `"standard"` in 100% of trials
    with zero variance, consistent with this. This question is closed.
+8. **`output_config.effort` is real and substantial, not a no-op — and it
+   changes more than thinking depth.** A 5-condition, 18-trial sweep
+   (low/medium/high/xhigh/max, held-fixed prompt) shows thinking-token
+   fraction rising from ~2% (low/medium) to ~82% (max) and wall-clock rising
+   from ~15s to ~65s median for the *identical* prompt. Surprisingly, raw
+   decode throughput (total tok/s) *increases* with effort rather than
+   degrading (~69-76 tok/s at low/medium/high/xhigh vs ~100 tok/s at max),
+   most likely because a longer, largely-uninterrupted generation amortizes
+   fixed per-request overhead better than a short one. A real operational
+   gotcha surfaced too: `effort:"max"` needs generous `max_tokens` headroom
+   (>=20000) or it silently truncates mid-thought. See F10.
 
 ## Confirmed Findings
 
@@ -235,6 +246,62 @@ the messages-side prompt-cache breakpoint (system/tools stay cached) — don't
 alternate thinking modes mid-sweep in any experiment or the cache-miss cost
 will confound the timing numbers.
 
+### F10. `output_config.effort` measurably changes thinking-fraction, wall-clock, and total decode throughput (2026-07-17, TASK-010)
+Resolves the mission's second-highest-priority open question. Sweep:
+`bench/specs/effort_sweep_full.json` (low/medium/high/xhigh/max,
+`thinking:"adaptive"`, fixed prompt, `max_tokens:6000`, N=3 trials/condition,
+raw results `bench/results/effort_sweep_full.jsonl`), plus a follow-up retest
+of `max` alone at `max_tokens:20000` (`bench/specs/effort_max_retest.json`,
+`bench/results/effort_max_retest.jsonl`) after discovering the first `max` run
+was contaminated by truncation (below). Analyzed with `bench/analyze_results.py`
+(now reports observed min/max range for n<4 instead of a misleading
+zero-width "IQR" — see Methodology Notes).
+
+| effort | median wall_s | median total tok/s | median thinking_frac |
+|---|---|---|---|
+| low | 15.09s (range 14.23-18.16) | 70.79 (51.25-74.36) | 0.02 (0.00-0.03) |
+| medium | 16.62s (range 16.31-24.72) | 68.17 (56.03-68.75) | 0.02 (0.00-0.03) |
+| high | 18.78s (range 17.23-20.10) | 69.65 (55.22-74.74) | 0.09 (0.07-0.09) |
+| xhigh | 21.33s (range 14.68-39.85) | 76.22 (58.85-101.48) | 0.10 (0.05-0.71) |
+| max (clean retest, 20K ceiling) | 64.75s (range 57.07-73.32) | 101.40 (99.78-103.16) | 0.82 (0.81-0.84) |
+
+- **effort is real and substantial, not a no-op**: thinking-token fraction
+  rises from ~2% (low/medium) to ~82% (max) of total output, and wall-clock
+  rises correspondingly (15s → 65s median) for the identical prompt.
+- **A genuine surprise**: raw decode throughput (total tok/s) *increases*
+  with effort rather than degrading — low/medium/high/xhigh cluster ~68-76
+  tok/s, `max` reaches ~100 tok/s. Likely explanation (consistent with this
+  doc's original Executive Summary point #2, carried from the prior
+  session): a short total-output turn pays the same fixed per-request
+  overhead (connection setup, initial TTFT) as a long one, so that overhead
+  is a *larger fraction* of a short run's wall time; `max`'s much longer,
+  largely-uninterrupted thinking-token stream amortizes that fixed cost far
+  better, closer to true steady-state decode speed. Not yet independently
+  isolated (would need a fixed-output-length control across effort levels)
+  but a plausible, doctrine-consistent explanation, not a new unexplained
+  anomaly — flagged as a follow-up, not asserted as proven.
+- **`max_tokens` headroom is a real operational gotcha at high effort**: the
+  FIRST `effort:"max"` run (`max_tokens:6000`, same ceiling as every other
+  condition) hit `stop_reason:"max_tokens"` in 2 of 3 trials — the model was
+  still mid-thought, not naturally done (raw data still in
+  `effort_sweep_full.jsonl`, but NOT what's reported in the table above; the
+  clean retest at `max_tokens:20000`, all 3 trials `stop_reason:"end_turn"`,
+  is). **Any tooling/helper that lets a caller select `effort:"max"` (or
+  likely `"xhigh"` — one of its 3 trials already reached 71% thinking_frac
+  at only a 6000-token ceiling) must default to a generous `max_tokens`
+  (>=20000) or the response will silently truncate mid-thought with no
+  error** — a real footgun `claude-code-auth` helpers should guard against,
+  not just document.
+- **`xhigh` showed much higher within-condition variance than low/medium/high**
+  (thinking_frac range 0.05-0.71 vs a tight 0.00-0.09 band for the lower
+  three) — worth a larger-N follow-up if budget allows; not investigated
+  further this pass.
+
+This directly informs Recommended Configuration below and TASK-011
+(controlled streaming-vs-non-streaming), which holds effort fixed at `high`
+— the documented Claude Code default and the condition most representative
+of real usage, per this table indistinguishable in tok/s from low/medium.
+
 ## Rejected / Superseded Hypotheses
 
 - **VPN exit-country geo-mirroring** — hypothesized that Anthropic might route
@@ -277,14 +344,12 @@ will confound the timing numbers.
   confirmed zero OAuth-vs-API-key branching anywhere near thinking-mode
   logic, and zero changelog evidence of auth-method-specific enforcement —
   so "OAuth is simply more lenient" remains unconfirmed, not refuted.
-- **Does `output_config.effort` measurably change tok/s, thinking-token
-  fraction, and wall-clock, holding everything else fixed?** This is now the
-  highest-priority experiment — proposed test: sweep `low/medium/high/xhigh/max`
-  at fixed `thinking: {"type":"adaptive"}`, same prompt, N≥2 trials each,
-  using `bench/synthetic_multiturn_test.py --effort <value>`.
-  **Status: IN PROGRESS — coordinator running this sweep directly (real-API
-  cost, sequenced to avoid concurrency confounds); see Changelog for results
-  as they land.**
+- ~~Does `output_config.effort` measurably change tok/s, thinking-token
+  fraction, and wall-clock, holding everything else fixed?~~ — **RESOLVED,
+  see F10**: yes, substantially — thinking_frac 2%→82% low→max, wall-clock
+  15s→65s median, and total tok/s counterintuitively *rises* with effort
+  (~69-76 → ~100 tok/s). `max_tokens` headroom is a real gotcha at
+  `effort:"max"`/`"xhigh"` (silent truncation below ~20000).
 - **Streaming vs non-streaming, CONTROLLED for effort/thinking** — the
   original question that triggered this whole mission. The earlier 4-trial
   result suggesting "non-streaming is faster" was confounded by
@@ -336,14 +401,26 @@ will confound the timing numbers.
 
 ## Recommended Configuration
 
-*(will fill in firmly once the effort-sweep and controlled streaming-vs-
-nonstream experiments land; provisional guidance below)*
+*(firming up as experiments land; still provisional on streaming-vs-nonstream,
+TASK-011, which is next)*
 
 - **Prefer `thinking: {"type":"adaptive"}` + `output_config.effort` over
   manual `budget_tokens`** for new experiments and for any convenience helper
   shipped in this library, since it's very likely what Claude Code itself
   actually sends on Sonnet-5-class models, and it's the officially-supported
   path going forward — even though manual mode still empirically works today (F2).
+- **`effort: "high"` (the documented default) is a sound default for typical
+  interactive use** (F10): low/medium/high/xhigh are statistically
+  indistinguishable in tok/s (~68-76 tok/s) and low/medium/high cluster in a
+  tight, low thinking-fraction band (~2-9%). Reach for `max` only when the
+  task genuinely needs deep, extended reasoning — it triples wall-clock
+  (~65s vs ~15-20s for the same prompt) and spends ~82% of output on
+  invisible thinking tokens.
+- **Any helper exposing `effort` must default/validate `max_tokens` >= ~20000
+  when `effort` is `"xhigh"` or `"max"`** (F10) — otherwise a real request can
+  silently truncate mid-thought (`stop_reason:"max_tokens"`) with no error,
+  which happened in 2 of 3 trials at a 6000-token ceiling during this mission's
+  own sweep.
 - **Fast Mode (F3) is the single biggest concrete lever this mission has
   found, and it needs Andrew's decision, not this session's.** Enabling
   pay-as-you-go "usage credits" billing unlocks up to a documented 2.5x OTPS
@@ -386,9 +463,47 @@ nonstream experiments land; provisional guidance below)*
   SERIALLY (one at a time, coordinator-run or one dedicated fork); the
   concurrency experiment gets its OWN isolated wave with nothing else calling
   the API at the same time.
+- **`bench/analyze_results.py`'s `median_iqr` collapsed to a fake zero-width
+  "IQR" for n<4 trials** (fixed 2026-07-17, TASK-010) — since n=3 is this
+  project's default trial count (cost control), every sweep run before the
+  fix would have silently under-reported real trial-to-trial variance as
+  "no spread." Now n<4 reports observed min/max labeled "range" instead of a
+  misleading "IQR". Re-check any pre-fix sweep output before trusting its
+  reported spread.
+- **Cache-write cost is incurred by whichever trial happens to run first
+  after a thinking-mode/cache-lineage change, not evenly spread** — in the
+  effort sweep, exactly 4 of 15 trials paid the full 358K-token cache-write
+  cost (~6x a cache-read's price) simply by being first in their condition
+  group after a cache miss; the other 11 were cheap cache-reads. Not a bug,
+  but worth deliberately exploiting going forward: for any future sweep, run
+  one cheap throwaway call first (trivial prompt, minimal `max_tokens`) to
+  eat the cache-write cost on a near-zero-output request, so every real
+  measurement trial is a cache-read. Not done retroactively here since the
+  actual spend was still modest (see Changelog cost tally).
 
 ## Changelog
 
+- 2026-07-17 (TASK-010, coordinator-run serial experiment): Ran the
+  `output_config.effort` sweep (low/medium/high/xhigh/max, N=3 trials each,
+  `bench/specs/effort_sweep_full.json` -> `bench/results/effort_sweep_full.jsonl`).
+  Landed F10: effort is real and substantial (thinking_frac 2%→82%,
+  wall-clock 15s→65s, tok/s counterintuitively *rises* with effort).
+  Discovered `effort:"max"` truncated (2/3 trials, `stop_reason:"max_tokens"`)
+  at the sweep's 6000-token ceiling; retested `max` alone at
+  `max_tokens:20000` for a clean read (`bench/specs/effort_max_retest.json` ->
+  `bench/results/effort_max_retest.jsonl`, all 3 trials natural `end_turn`).
+  Also fixed a real bug found while reading the raw data:
+  `bench/analyze_results.py`'s `median_iqr` silently collapsed to a
+  zero-width fake "IQR" for n<4 (this project's default trial count),
+  masking genuine variance — now reports observed min/max range for small n,
+  plus a truncation warning when any trial in a group hit `max_tokens`. This
+  resolves the mission's second-highest-priority open question and directly
+  unblocks TASK-011. Real-API spend this experiment: 18 trials, ~52.7K output
+  tokens total, only 4/18 trials paid a full cache-write (the rest were
+  cheap cache-reads) — roughly $10-11 (rough estimate; largest single spend
+  of this mission so far, previous total was ~$8-10). Methodology
+  improvement noted for future sweeps: a cheap cache-warmup call before a
+  real batch would move the cache-write cost off real measurement trials.
 - 2026-07-17 (wave 2): TASK-007 fixed for real — root cause was a stale
   `token_url` (`console.anthropic.com` → `platform.claude.com`), confirmed
   against `cc-xray`'s `PROD_OAUTH_CONFIG.TOKEN_URL`; the bug had been

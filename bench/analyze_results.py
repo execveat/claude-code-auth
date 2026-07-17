@@ -71,23 +71,32 @@ def compute_metrics(result):
 
 
 def median_iqr(values):
+    """Return (median, low, high, n, is_iqr). For n>=4 low/high are real
+    quartiles (Q1/Q3). Below that a quartile split is meaningless -- rather
+    than collapsing to a fake zero-width "IQR" (which silently hides real
+    trial-to-trial spread, e.g. for the n=2-3 trial counts this project's
+    cost-conscious sweeps default to), low/high fall back to observed
+    min/max and is_iqr=False so callers can label it "range" instead."""
     vals = sorted(v for v in values if v is not None)
     if not vals:
-        return None, None, None, 0
+        return None, None, None, 0, True
     n = len(vals)
     med = statistics.median(vals)
     if n >= 4:
         q1 = statistics.median(vals[: n // 2])
         q3 = statistics.median(vals[(n + 1) // 2 :])
+        is_iqr = True
     else:
-        q1 = q3 = med
-    return med, q1, q3, n
+        q1, q3 = vals[0], vals[-1]
+        is_iqr = False
+    return med, q1, q3, n, is_iqr
 
 
-def fmt(med, q1, q3, unit=""):
+def fmt(med, q1, q3, unit="", is_iqr=True):
     if med is None:
         return "n/a"
-    return f"{med:.2f}{unit} (IQR {q1:.2f}-{q3:.2f}{unit})"
+    label = "IQR" if is_iqr else "range"
+    return f"{med:.2f}{unit} ({label} {q1:.2f}-{q3:.2f}{unit})"
 
 
 def load_records(path):
@@ -114,25 +123,45 @@ def report(groups):
         trials = groups[label]
         metrics = [compute_metrics(t["result"]) for t in trials]
         n = len(trials)
-        wall_med, wall_q1, wall_q3, wall_n = median_iqr(m["wall_s"] for m in metrics)
-        tps_med, tps_q1, tps_q3, tps_n = median_iqr(m["total_tps"] for m in metrics)
-        think_med, think_q1, think_q3, think_n = median_iqr(
+        wall_med, wall_q1, wall_q3, wall_n, wall_iqr = median_iqr(
+            m["wall_s"] for m in metrics
+        )
+        tps_med, tps_q1, tps_q3, tps_n, tps_iqr = median_iqr(
+            m["total_tps"] for m in metrics
+        )
+        think_med, think_q1, think_q3, think_n, think_iqr = median_iqr(
             m["thinking_frac"] for m in metrics
         )
-        vis_med, vis_q1, vis_q3, vis_n = median_iqr(
+        vis_med, vis_q1, vis_q3, vis_n, vis_iqr = median_iqr(
             m["visible_tps_phase"] for m in metrics
         )
+        truncated = sum(
+            1 for t in trials if t["result"].get("stop_reason") == "max_tokens"
+        )
         lines.append(f"=== {label} (n={n}) ===")
-        lines.append(f"  wall_s:              {fmt(wall_med, wall_q1, wall_q3, 's')}")
-        lines.append(f"  total_tok_s:         {fmt(tps_med, tps_q1, tps_q3, ' tok/s')}")
         lines.append(
-            f"  thinking_frac:       {fmt(think_med, think_q1, think_q3)}"
+            f"  wall_s:              {fmt(wall_med, wall_q1, wall_q3, 's', wall_iqr)}"
+        )
+        lines.append(
+            f"  total_tok_s:         {fmt(tps_med, tps_q1, tps_q3, ' tok/s', tps_iqr)}"
+        )
+        lines.append(
+            f"  thinking_frac:       {fmt(think_med, think_q1, think_q3, '', think_iqr)}"
             + (f"  [n={think_n}/{n}]" if think_n < n else "")
         )
         if vis_n:
             lines.append(
-                f"  visible_tps_phase:   {fmt(vis_med, vis_q1, vis_q3, ' tok/s')}"
+                f"  visible_tps_phase:   {fmt(vis_med, vis_q1, vis_q3, ' tok/s', vis_iqr)}"
                 f"  [streaming only, n={vis_n}/{n}]"
+            )
+        if truncated:
+            lines.append(
+                f"  WARNING: {truncated}/{n} trial(s) hit max_tokens (stop_reason="
+                '"max_tokens") -- generation was cut off, not a natural stop. '
+                "wall_s/tok_s above still reflect real decode rate, but the "
+                "model's natural total-output length for this condition is "
+                "UNKNOWN (it wanted to keep generating). Re-run with a higher "
+                "--max-tokens for a clean natural-completion read."
             )
     return "\n".join(lines)
 
