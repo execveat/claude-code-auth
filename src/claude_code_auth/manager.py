@@ -67,6 +67,14 @@ class ClaudeCodeOAuthManager:
         self._stores.append(PlaintextStore(self._config_dir))
         self._active_store: Optional[CredentialStore] = None
         self._tokens: Optional[OAuthTokens] = None
+        # Minted once per manager instance (~= once per process), never per
+        # request. Confirmed against Claude Code's own source: the real CLI
+        # sets this exactly once at process start (a module-level singleton,
+        # cc-xray/src/bootstrap/state.ts:331 `getInitialState()`) and every
+        # request reads the same value (state.ts:431-433 `getSessionId()`);
+        # it's a lineage/correlation ID for the whole session, not a
+        # per-call value like X-Client-Request-Id below.
+        self._session_id = str(uuid.uuid4())
 
     @property
     def access_token(self) -> str:
@@ -110,6 +118,14 @@ class ClaudeCodeOAuthManager:
         requests built from these headers get a bare 429 rate_limit_error
         with no rate-limit accounting headers at all (confirmed empirically:
         identical requests succeed instantly once that block is added).
+
+        X-Claude-Code-Session-Id is STICKY: minted once in __init__ and
+        reused across every call this manager makes (matches real Claude
+        Code -- a per-process lineage/correlation ID, not a per-request
+        one). X-Client-Request-Id is the opposite: a fresh UUID every call,
+        matching real Claude Code's per-request correlation id (used
+        client-side to survive timeouts with no server-side request id).
+        Call build_headers() once per outgoing request to get this right.
         """
 
         token = self.access_token
@@ -122,7 +138,7 @@ class ClaudeCodeOAuthManager:
             "anthropic-dangerous-direct-browser-access": "true",
             "anthropic-version": ANTHROPIC_HEADER_VERSION,
             "X-App": "cli",
-            "X-Claude-Code-Session-Id": str(uuid.uuid4()),
+            "X-Claude-Code-Session-Id": self._session_id,
             "X-Client-Request-Id": str(uuid.uuid4()),
         }
 
