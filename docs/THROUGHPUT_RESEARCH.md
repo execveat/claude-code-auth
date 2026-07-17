@@ -187,8 +187,13 @@ Two headline results carried forward from before this autonomous pass:
     first call); every `1h`-TTL trial's second call landed as a pure
     cache-read with an EXACT token-count match to its first call. This closes
     planq's backlog to zero open tickets and settles a real, avoidable cost
-    footgun: any session with realistic human-paced idle gaps should default
-    to `1h`, never the shorter TTL. See F20.
+    footgun for realistic human-paced idle gaps — though `1h` is NOT a
+    universal default: it costs MORE upfront per write (2x base-input rate
+    vs `5m`'s 1.25x), so it only wins once its lower rewrite frequency
+    outweighs that premium (true for this mission's own realistic-idle-gap
+    workload, not automatically true for a prefix read zero or one times
+    before either TTL would expire it). See the Recommended Configuration
+    pricing-tradeoff correction below for the full nuance, and F20.
 19. **A final external peer-review pass (after the backlog hit zero) caught
     several real overclaims and surfaced a genuinely new, concrete lever —
     which was then tested and REFUTED, not confirmed.** HTTP/2 multiplexing
@@ -215,15 +220,20 @@ Two headline results carried forward from before this autonomous pass:
     (F13's concurrency + prompt caching): fix is a single cheap warmup call
     before firing the concurrent batch. See F23.
 22. **Warm cached-context LENGTH (independent of cache hit/miss) shows no
-    measurable effect on decode-phase tok/s across a 7x range (~50K to
-    ~358K tokens)** — a clean extension of F4's "caching doesn't touch
-    decode" finding to a second, independent variable (raw prefill length
-    itself). Medians 0.2 tok/s apart, ranges almost fully overlapping. A
-    real harness bug was found and fixed en route: `thinking="disabled"`
-    previously omitted the `thinking` field rather than sending it
-    explicitly, and omitting it does NOT reliably suppress server-side
-    reasoning — now fixed to always send `{"type":"disabled"}` explicitly.
-    See F24.
+    measurable effect on decode-phase tok/s across a ~4.6x range (~77K to
+    ~358K tokens — the condition labeled `ctx_50k` actually measured ~77K
+    cached tokens, not 50K)** — a clean extension of F4's "caching doesn't
+    touch decode" finding to a second, independent variable (raw prefill
+    length itself). Medians 0.2 tok/s apart, ranges almost fully overlapping
+    — "overlapping ranges" is the honest characterization at n=3/condition
+    with no formal significance test run, NOT "statistically
+    indistinguishable" (the same correction this doc already made for F10).
+    The sub-77K floor of the range remains untested cleanly (a response-shape
+    confound). A real harness bug was found and fixed en route:
+    `thinking="disabled"` previously omitted the `thinking` field rather than
+    sending it explicitly, and omitting it does NOT reliably suppress
+    server-side reasoning — now fixed to always send `{"type":"disabled"}`
+    explicitly. See F24.
 
 ## Confirmed Findings
 
@@ -972,9 +982,18 @@ shortfall or lets scaling exceed N=16.
   concurrent-stream ceiling for this API sits somewhere between N=4 and N=8
   — well below F13's N=16, which `requests`-based per-thread HTTP/1.1
   connections handled with zero errors at every level tested.
-- **Most likely explanation**: a server-side or Cloudflare-front-end
-  concurrent-stream/flow-control limit per HTTP/2 connection, considerably
-  lower than 16. This makes F13's own framing INCOMPLETE rather than wrong:
+- **Two candidate explanations, NOT distinguished by this experiment**
+  (external-peer-review correction, 2026-07-17: the original write-up
+  asserted the server-side explanation as "most likely" without the hedge
+  below): (a) a server-side or Cloudflare-front-end concurrent-stream/
+  flow-control limit per HTTP/2 connection, considerably lower than 16; or
+  (b) a client-side/harness artifact — the N=16 failure is specifically a
+  `LocalProtocolError`, raised by httpx's OWN h2 state machine rather than a
+  remote rejection, and driving ONE shared `httpx.Client(http2=True)` from a
+  multi-threaded pool is a known thread-safety hazard region for HTTP/2
+  stream multiplexing, so this could equally be this harness's own threading
+  model hitting its limit rather than a true API/CDN ceiling. This makes
+  F13's own framing INCOMPLETE rather than wrong:
   F13's client-side-effect caveat was offered to explain a MILD stagger
   (13.4x vs 16x, zero errors) — this experiment shows HTTP/2 hits a much
   HARDER wall (outright connection failure) well before that scale, so it
@@ -993,9 +1012,10 @@ shortfall or lets scaling exceed N=16.
   the fork's own directly-observed exception messages and HTTP-version
   confirmations at each level, not a saved artifact; a re-run would
   reproduce it cheaply if independent confirmation is ever needed.
-- Real-API spend: negligible — 4 successful trivial calls (N=1/2/4 at
-  `max_tokens:50`) plus the failed N=8/N=16 attempts (calls that errored
-  before/during response don't bill meaningful output tokens).
+- Real-API spend: negligible — 7 successful trivial calls (N=1+2+4=7 calls
+  across those three levels, `max_tokens:50`) plus the failed N=8/N=16
+  attempts (calls that errored before/during response don't bill meaningful
+  output tokens).
 
 ### F22. Batch API is closed to this OAuth account — a token-SCOPE gate, a new gate mechanism distinct from prior org-type gates (2026-07-17, TASK-024)
 Peer-review-surfaced follow-up: is Anthropic's Batch API (`/v1/messages/batches`,
@@ -1072,7 +1092,7 @@ disabled, `max_tokens:50`.
   N× a single cache-write, roughly $4-6 (comparable to F15's cost, this
   mission's prior largest single-experiment spend).
 
-### F24. Warm cached-context LENGTH shows no measurable effect on decode-phase tok/s across a 7x range — a clean extension of F4's null result (2026-07-17, TASK-025, mission's LAST ticket)
+### F24. Warm cached-context LENGTH shows no measurable effect on decode-phase tok/s across a ~4.6x range (77K-358K tokens) — a clean extension of F4's null result; the sub-77K floor remains untested (2026-07-17, TASK-025, mission's LAST ticket)
 Peer-review-surfaced follow-up, deliberately distinct from F4: F4 established
 that cache STATUS (hit vs miss) doesn't affect decode speed. This asks
 whether raw prefill LENGTH itself — holding cache status fixed at "warm
@@ -1097,14 +1117,22 @@ generation activity after the first content delta, excluding prefill/TTFT.
 | `ctx_50k` (~50K tok) | 3 | 83.9 – 90.7 | 85.2 | `max_tokens` (3000 output tokens) | clean cache_read, 0 cache_creation |
 | `ctx_358k` (~358K tok) | 3 | 84.5 – 87.1 | 85.0 | `max_tokens` (3000 output tokens) | clean cache_read, 0 cache_creation |
 
-- **Headline, clean result: across a 7x range of warm cached-context length
-  (~50K to ~358K tokens), decode-phase tok/s is statistically
-  indistinguishable** — `ctx_50k` and `ctx_358k`'s ranges almost fully
-  overlap (medians 0.2 tok/s apart) despite one condition's prefix being
-  more than 7x longer than the other's. This directly extends F4's finding
-  (cache hit/miss doesn't touch decode speed) to a second, independent
-  variable: prefill LENGTH itself, at fixed cache-hit status, also doesn't
-  measurably touch decode speed, at least across this tested range.
+- **Headline, clean result: across a ~4.6x range of warm cached-context
+  length, decode-phase tok/s ranges overlap almost completely** —
+  `ctx_50k`'s ACTUAL measured cache size was ~77K tokens, not the 50K its
+  label implies (see the real-API-spend line below: "~2K + ~77K + ~358K
+  tokens"), so the clean comparison here is 77K vs 358K, a ~4.6x span, not
+  the 7x a literal "50K" reading would suggest. `ctx_50k` and `ctx_358k`'s
+  ranges overlap almost entirely (medians 0.2 tok/s apart) despite that
+  ~4.6x prefix-length difference — "overlapping ranges" is the honest
+  characterization at n=3/condition with no formal significance test run,
+  NOT "statistically indistinguishable" (the exact same overclaim this doc's
+  own Recommended Configuration already flagged and corrected for F10 — see
+  below). This directly extends F4's finding (cache hit/miss doesn't touch
+  decode speed) to a second, independent variable: prefill LENGTH itself, at
+  fixed cache-hit status, also doesn't measurably touch decode speed — across
+  the tested ~77K-358K range specifically. The sub-77K floor is NOT covered
+  by this clean result (see `ctx_min` below).
 - **`ctx_min` is directionally lower (median 73.5 vs ~85) but the evidence is
   muddied, not clean, and should NOT be read as "shorter context decodes
   slower."** Its 3 measurement calls all stopped naturally at `end_turn`
@@ -1290,12 +1318,15 @@ generation activity after the first content delta, excluding prefill/TTFT.
     **RESOLVED, see F22 (TASK-024)**: no — closed via an OAuth token scope
     gate (`403`, missing `user:batch`/etc scopes), not a billing decision;
     would need a genuinely different auth path (a real API key) to use.
-  - **Does warm cached-CONTEXT LENGTH itself change decode tok/s or
-    wall-clock**, independent of the caching mechanism (F4 already
-    established caching per se doesn't touch decode)? A randomized sweep at
-    0K/50K/358K warm-prefix sizes with fixed output length would isolate
-    whether a longer prefill phase (regardless of cache hit/miss) has any
-    measurable knock-on effect on the decode phase that follows it.
+  - ~~Does warm cached-CONTEXT LENGTH itself change decode tok/s or
+    wall-clock, independent of the caching mechanism~~ (F4 already
+    established caching per se doesn't touch decode)? — **RESOLVED, see F24
+    (TASK-025, mission's LAST ticket)**: no measurable effect across the
+    tested ~77K-358K range (ranges overlap almost completely, medians 0.2
+    tok/s apart); the sub-77K floor (`ctx_min`, ~2K tokens) remains
+    genuinely untested due to a response-shape confound — a clean rerun of
+    just that leg would close the one remaining gap, but is not blocking
+    given the strong 77K-358K null result.
 
 ## Recommended Configuration
 
@@ -1313,7 +1344,12 @@ generation activity after the first content delta, excluding prefill/TTFT.
   INDEPENDENT connections for this (one per concurrent call, as ordinary
   thread-based `requests` usage already does) — do NOT multiplex many
   concurrent calls over a single HTTP/2 connection: confirmed to fail
-  outright between N=4 and N=8 (F21), well short of N=16.
+  outright between N=4 and N=8 (F21), well short of N=16. **If the
+  concurrent calls share a COLD (never-yet-cached) prefix, fire ONE cheap
+  warmup call first to pay the cache-write cost exactly once** — concurrent
+  callers do NOT deduplicate a simultaneous cold-cache write; every one of
+  them independently pays the full write cost otherwise, a real N× cost
+  multiplier trap when naively combining concurrency with caching (F23).
 - **Streaming vs non-streaming: DEFINITIVELY no throughput difference**
   (F11, resolved via TASK-021's properly-controlled redo — fixed output
   length + randomized order, N=16/mode, p=0.99). Prefer streaming anyway,
@@ -1370,6 +1406,15 @@ generation activity after the first content delta, excluding prefill/TTFT.
   non-fast baseline.
 - **Don't chase `service_tier`/Priority Tier** (F5) — confirmed closed to us,
   don't re-investigate.
+- **Don't chase the Batch API** (F22) — closed via an OAuth token SCOPE gate
+  (`403`, missing `user:batch`/`user:developer`/`workspace:developer`/
+  `workspace:inference`), not a billing decision. Tested against this
+  account's Claude Code OAuth token specifically (n=1 account), but the gate
+  is a scope property of the credential TYPE Claude Code issues, not an
+  account-specific billing setting, so it plausibly generalizes to any
+  OAuth-subscription-authenticated tooling of this kind — would need a
+  genuinely different auth path (a real API key with batch/developer scope)
+  to use, not something Andrew could unlock by changing his own billing plan.
 - **Prompt caching should be treated purely as a cost/TTFT optimization in
   any helper tooling** — never marketed or reasoned about as a decode-speed
   lever (F4).
