@@ -26,5 +26,11 @@ touches: [bench/]
 verification:
   - Result appended to docs/THROUGHPUT_RESEARCH.md as a new finding
 acceptance: []
-status: open
+notes:
+  - at: '2026-07-17T04:46:34'
+    text: Fork built bench/concurrency_http2_test.py (httpx[http2] shared client, commit 0c08a17), tested N=1/2/4/8/16 -- fails outright (RemoteProtocolError/LocalProtocolError) between N=4 and N=8, well short of F13's N=16.
+status: completed
+resolution: 'F21 confirmed: HTTP/2 multiplexing refuted as a fix for F13''s sub-linear scaling -- it breaks the connection entirely before N=8, worse than the requests/HTTP1.1 baseline which had zero errors at N=16. See docs/THROUGHPUT_RESEARCH.md F21 and its Changelog entry'
 created: '2026-07-17T04:38:43'
+updated: '2026-07-17T04:46:34'
+completed_at: '2026-07-17T04:46:34'

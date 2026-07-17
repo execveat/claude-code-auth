@@ -189,6 +189,16 @@ Two headline results carried forward from before this autonomous pass:
     planq's backlog to zero open tickets and settles a real, avoidable cost
     footgun: any session with realistic human-paced idle gaps should default
     to `1h`, never the shorter TTL. See F20.
+19. **A final external peer-review pass (after the backlog hit zero) caught
+    several real overclaims and surfaced a genuinely new, concrete lever —
+    which was then tested and REFUTED, not confirmed.** HTTP/2 multiplexing
+    (many concurrent calls over ONE connection) was hypothesized to recover
+    F13's sub-linear N=16 concurrency scaling (13.4x, not 16x) — instead, it
+    fails outright between N=4 and N=8 (`httpx.RemoteProtocolError`/
+    `LocalProtocolError`), well before reaching F13's own N=16, which
+    ordinary independent HTTP/1.1 connections handled with zero errors.
+    "Switch to HTTP/2" is not the fix for F13's shortfall — keep using
+    independent connections for concurrent workloads. See F21.
 
 ## Confirmed Findings
 
@@ -914,6 +924,54 @@ generation):
 - Real-API spend: 12 trivial calls (`max_tokens:50`, thinking disabled) + 2
   trivial scope-probe calls — negligible, well under $1.
 
+### F21. HTTP/2 multiplexing does NOT recover F13's sub-linear concurrency scaling — it fails outright well below N=16 (2026-07-17, TASK-022)
+Peer-review-surfaced follow-up to F13's own open caveat: the ~13.4x-not-16x
+aggregate scaling at N=16 was attributed to "a client-side effect (thread
+scheduling / connection-pool limits in this harness)" but never isolated —
+`requests` opens one HTTP/1.1 socket per concurrent thread. New tool
+`bench/concurrency_http2_test.py` shares ONE `httpx.Client(http2=True)`
+connection across all N concurrent calls at a level (via a thread pool,
+matching F13's structure), testing whether multiplexing recovers the
+shortfall or lets scaling exceed N=16.
+
+| level | protocol | outcome |
+|---|---|---|
+| N=1 | HTTP/2, shared client | works — `http_version='HTTP/2'` confirmed via ALPN |
+| N=2 | HTTP/2, shared client | works cleanly |
+| N=4 | HTTP/2, shared client | works cleanly |
+| N=8 | HTTP/2, shared client | **FAILS** — `httpx.RemoteProtocolError("Server disconnected")` |
+| N=16 | HTTP/2, shared client | **FAILS** — `httpx.LocalProtocolError` (flow-control related) |
+
+- **Refuted, not just null — and more decisively: HTTP/2 multiplexing is
+  actively WORSE, not neutral.** A single HTTP/2 connection's practical
+  concurrent-stream ceiling for this API sits somewhere between N=4 and N=8
+  — well below F13's N=16, which `requests`-based per-thread HTTP/1.1
+  connections handled with zero errors at every level tested.
+- **Most likely explanation**: a server-side or Cloudflare-front-end
+  concurrent-stream/flow-control limit per HTTP/2 connection, considerably
+  lower than 16. This makes F13's own framing INCOMPLETE rather than wrong:
+  F13's client-side-effect caveat was offered to explain a MILD stagger
+  (13.4x vs 16x, zero errors) — this experiment shows HTTP/2 hits a much
+  HARDER wall (outright connection failure) well before that scale, so it
+  doesn't identify what causes F13's milder shortfall, only that "switch to
+  HTTP/2" is not the fix for it.
+- **Practical implication for Recommended Configuration**: keep using
+  independent connections (one per concurrent call, as `requests`-based
+  threading already does) for concurrent workloads against this API — do
+  NOT multiplex many concurrent calls over a single HTTP/2 connection; it
+  breaks before N=8 in this mission's own test.
+- **Honest limitation**: the exact per-connection stream ceiling (between
+  N=4 and N=8) was not narrowed further (time-boxed), and the underlying
+  cause (server enforcement vs. a proxy/CDN layer) was not distinguished.
+  The raw per-level JSONL output wasn't persisted by the executing fork
+  (`bench/results/concurrency_http2.jsonl` is empty) — this finding rests on
+  the fork's own directly-observed exception messages and HTTP-version
+  confirmations at each level, not a saved artifact; a re-run would
+  reproduce it cheaply if independent confirmation is ever needed.
+- Real-API spend: negligible — 4 successful trivial calls (N=1/2/4 at
+  `max_tokens:50`) plus the failed N=8/N=16 attempts (calls that errored
+  before/during response don't bill meaningful output tokens).
+
 ## Rejected / Superseded Hypotheses
 
 - **VPN exit-country geo-mirroring** — hypothesized that Anthropic might route
@@ -1027,16 +1085,13 @@ generation):
 - **New questions surfaced by the final external peer-review pass
   (2026-07-17, not yet run — filed as planq follow-ups for a future
   session):**
-  - **Does HTTP/2 multiplexing (one connection, many concurrent streams)
-    recover F13's N=16 sub-linear scaling (13.4x, not 16x)?** F13 attributed
-    the shortfall to "a client-side effect (thread scheduling /
-    connection-pool limits in this harness)" but never isolated it — this
-    harness's `requests` library is HTTP/1.1 only (one socket per
-    concurrent thread); `httpx` with HTTP/2 could multiplex N calls over a
-    single connection and might close the gap, or push scaling past N=16
-    where `requests`-based threading tops out on socket/thread overhead.
-    Distinct from F14 (which tested SERIAL session reuse, not concurrent
-    multiplexing).
+  - ~~Does HTTP/2 multiplexing (one connection, many concurrent streams)
+    recover F13's N=16 sub-linear scaling (13.4x, not 16x)?~~ — **RESOLVED,
+    see F21 (TASK-022)**: no — refuted, and more decisively than a simple
+    null result. A single HTTP/2 connection fails outright
+    (`RemoteProtocolError`/`LocalProtocolError`) somewhere between N=4 and
+    N=8, well short of F13's own N=16. Keep using independent connections
+    for concurrent workloads against this API.
   - **What happens to concurrency's economics under a COLD shared cache?**
     F13 ran entirely on a warm cache lineage — N simultaneous calls racing
     to write the SAME cold 358K-token prefix (several paying
@@ -1067,7 +1122,11 @@ generation):
   tokens/sec with zero account/billing changes — a bigger, more certain win
   than Fast Mode's unverified 2.5x. Ceiling above N=16 is untested; if
   higher concurrency is needed in practice, verify it holds at that scale
-  first rather than assuming linear scaling continues indefinitely.
+  first rather than assuming linear scaling continues indefinitely. Use
+  INDEPENDENT connections for this (one per concurrent call, as ordinary
+  thread-based `requests` usage already does) — do NOT multiplex many
+  concurrent calls over a single HTTP/2 connection: confirmed to fail
+  outright between N=4 and N=8 (F21), well short of N=16.
 - **Streaming vs non-streaming: DEFINITIVELY no throughput difference**
   (F11, resolved via TASK-021's properly-controlled redo — fixed output
   length + randomized order, N=16/mode, p=0.99). Prefer streaming anyway,
@@ -1233,6 +1292,27 @@ generation):
 
 ## Changelog
 
+- 2026-07-17 (TASK-022, dedicated fork): Tested the peer-review-surfaced
+  HTTP/2 multiplexing hypothesis against F13's own open caveat (does a
+  single shared connection recover the 13.4x-not-16x sub-linear scaling at
+  N=16?). New tool `bench/concurrency_http2_test.py` (`httpx[http2]` added
+  as a dependency). Landed **F21**: refuted, and more decisively than a
+  simple null — a single HTTP/2 connection fails outright
+  (`RemoteProtocolError`/`LocalProtocolError`) somewhere between N=4 and
+  N=8, well short of F13's own N=16, which ordinary independent HTTP/1.1
+  connections handled with zero errors. Process note: the first dispatch of
+  this fork returned a malformed, zero-tool-call response (it narrated
+  "waiting for a fork" instead of executing the task directly, seemingly
+  confused by the coordinator-voiced context it inherited) — caught
+  immediately by checking `tool_uses: 0` in the returned usage stats, and
+  fixed by re-dispatching with an explicit "you must execute this yourself,
+  right now" framing, which then worked cleanly (16 tool calls, real
+  result). Worth remembering for future waves: a fork's own `tool_uses`
+  count is a cheap, mechanical tripwire for this exact failure mode. Real-API
+  spend: negligible (4 trivial calls before the N=8/16 failures). This closes
+  the mission's final peer-review-surfaced action item; TASK-023/024/025
+  (cold-cache stampede, Batch API, warm-context-length) remain filed as
+  planq tickets for a future session.
 - 2026-07-17 (final external peer-review pass, mission wrap-up checkpoint):
   With the backlog at zero open tickets, consulted `claude-opus-4-8-thinking-high`
   and `gpt-5.6-sol-high` via `cursor-agent -p -f --mode ask` for a final
