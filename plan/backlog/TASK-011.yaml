@@ -1,0 +1,29 @@
+id: TASK-011
+title: 'EXP: controlled streaming vs non-streaming (effort+thinking fixed)'
+description: 'The mission''s original trigger question, done properly this time:
+
+  fixed effort and thinking=adaptive, N>=5 trials per mode (stream vs
+
+  nonstream), same prompt pool, sequential execution (never concurrent,
+
+  both to avoid the concurrency confound and because a single account
+
+  shouldn''t run two real trials at once for a clean per-trial timing
+
+  measurement). Report median + IQR per mode, and whether the earlier
+
+  confounded 4-trial result ("non-streaming looks faster") replicates
+
+  under control.
+
+  '
+workstream: experiments
+priority: 70
+depends: [TASK-010]
+scope: []
+tags: [serial]
+verification:
+  - Results + verdict appended to docs/THROUGHPUT_RESEARCH.md, explicitly updating or confirming the Executive Summary's streaming claim
+acceptance: []
+status: open
+created: '2026-07-17T01:16:35'

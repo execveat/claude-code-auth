@@ -1,0 +1,21 @@
+id: TASK-012
+title: 'EXP: redact-thinking-2026-02-12 beta A/B'
+description: 'Same request with vs without the redact-thinking-2026-02-12 beta
+
+  header (--extra-beta flag), thinking mode held fixed, to determine
+
+  whether this beta -- not a model default -- is what causes the
+
+  redacted/empty visible-thinking behavior seen in 100% of trials so far.
+
+  '
+workstream: experiments
+priority: 45
+depends: []
+scope: []
+tags: [serial]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
+acceptance: []
+status: open
+created: '2026-07-17T01:16:35'

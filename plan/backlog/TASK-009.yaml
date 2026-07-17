@@ -1,0 +1,41 @@
+id: TASK-009
+title: Investigate OAuth-vs-API-key enforcement gap + verify thinking.display field
+description: 'Two open threads from wave 1, bundled since both are read-only doc/source
+
+  investigation: (1) Why does Anthropic''s documented Sonnet-5 manual-
+
+  thinking-mode 400 restriction not manifest on our OAuth-authenticated
+
+  raw API calls (see docs/THROUGHPUT_RESEARCH.md F2)? Check whether
+
+  Anthropic''s docs or changelog say ANYTHING about auth-method-specific
+
+  enforcement differences (OAuth/subscription vs API-key/console
+
+  billing) anywhere else -- this could be a load-bearing distinction
+
+  relevant to several other open questions too. (2) Is `thinking.display`
+
+  (values like "omitted"/"summarized") an actual request-settable field,
+
+  or purely a model-version-dependent server default we can''t control?
+
+  Check the adaptive-thinking and extended-thinking docs pages
+
+  specifically for the exact field name/location if it exists, and
+
+  whether Claude Code''s own CLI (cc-xray) ever sets it explicitly.
+
+  '
+workstream: research
+priority: 55
+depends: []
+scope:
+  - docs.claude.com / platform.claude.com adaptive-thinking, extended-thinking, and changelog pages
+  - '~/Projects/cc/cc-xray: grep for ''display'' near thinking-related code, and any authType/oauth-vs-apikey branching around thinking/effort enforcement'
+tags: [research]
+verification:
+  - Findings appended to docs/THROUGHPUT_RESEARCH.md's Open Questions or Confirmed Findings as appropriate, with citations
+acceptance: []
+status: open
+created: '2026-07-17T01:16:35'

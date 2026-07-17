@@ -1,0 +1,27 @@
+id: TASK-010
+title: 'EXP: output_config.effort sweep (low/medium/high/xhigh/max)'
+description: 'Sweep effort values at fixed thinking=adaptive, same prompt, N>=2
+
+  trials each, measuring wall-clock, total output tokens, thinking_tokens
+
+  fraction, and visible tok/s via bench/synthetic_multiturn_test.py
+
+  --effort <value> --thinking adaptive. Serial execution only (see
+
+  Methodology Notes on the concurrency-confound rule). COORDINATOR-OWNED:
+
+  real-API-cost work the coordinator runs directly, not a fork dispatch,
+
+  to keep sequencing and spend under tight control.
+
+  '
+workstream: experiments
+priority: 70
+depends: []
+scope: []
+tags: [serial]
+verification:
+  - Results + summary table appended to docs/THROUGHPUT_RESEARCH.md
+acceptance: []
+status: open
+created: '2026-07-17T01:16:35'

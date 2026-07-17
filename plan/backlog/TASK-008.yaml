@@ -1,0 +1,60 @@
+id: TASK-008
+title: Build bench/run_sweep.py + bench/analyze_results.py
+description: 'A generic experiment-sweep runner + result aggregator so single-lever
+
+  A/B experiments (effort sweep, redact-thinking A/B, structured-output
+
+  latency, inference_geo, etc.) don''t each need bespoke scripts.
+
+  run_sweep.py: takes a YAML/JSON sweep spec (list of {label, args-dict}
+
+  entries mapping to synthetic_multiturn_test.py''s CLI flags), a
+
+  --trials-per-condition count, and a --delay-seconds between calls
+
+  (default a few seconds, to avoid hammering the API); executes SERIALLY
+
+  (never concurrently -- see docs/THROUGHPUT_RESEARCH.md''s Methodology
+
+  Notes on why concurrent experiment execution confounds every
+
+  single-lever test), appends each trial''s full JSON result plus its
+
+  condition label to a JSONL file under bench/results/ (gitignore this
+
+  dir -- real usage data, not source). analyze_results.py: reads a
+
+  results JSONL, groups by condition label, prints median/IQR of
+
+  total_tok_s, visible-phase tok/s (streaming only), thinking_tokens
+
+  fraction, and wall_s per group. IMPORTANT: this fork must NOT execute
+
+  any real API calls itself while building/testing this -- validate
+
+  run_sweep.py''s logic with a --dry-run mode (prints what it WOULD run,
+
+  makes zero real requests) and unit-test analyze_results.py against a
+
+  small hand-written fixture JSONL. The coordinator will run real sweeps
+
+  with the finished tool afterward, serially, to control spend and avoid
+
+  concurrency confounds.
+
+  '
+workstream: integration
+priority: 60
+depends: []
+scope:
+  - bench/run_sweep.py (new)
+  - bench/analyze_results.py (new)
+  - 'bench/README.md: document both tools'
+tags: [integration, tooling]
+touches: [bench/run_sweep.py, bench/analyze_results.py, bench/README.md]
+verification:
+  - bench/run_sweep.py --dry-run <spec> prints the planned trial list without any network call
+  - bench/analyze_results.py against a small hand-written fixture JSONL prints correct per-group medians
+acceptance: []
+status: open
+created: '2026-07-17T01:16:35'

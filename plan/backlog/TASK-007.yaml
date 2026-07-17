@@ -1,0 +1,33 @@
+id: TASK-007
+title: Fix claude-code-auth token-refresh 404 bug (_refresh_via_network)
+description: 'ClaudeCodeOAuthManager''s proactive token refresh (default 30-min-out
+
+  margin) 404s against the token endpoint even when the access token is
+
+  still genuinely valid within that window. Currently worked around in
+
+  bench/ scripts by passing refresh_margin_ms=60_000, but the library
+
+  itself still has the bug. Root-cause it (likely a wrong endpoint path,
+
+  wrong grant_type, or a stale refresh_token field expectation
+
+  _refresh_via_network sends) and fix it properly -- the workaround
+
+  should no longer be necessary in bench/ scripts once fixed.
+
+  '
+workstream: integration
+priority: 65
+depends: []
+scope:
+  - 'src/claude_code_auth/manager.py: _refresh_via_network and refresh_margin_ms handling'
+  - 'tests/test_manager.py: add a regression test for the refresh path'
+tags: [integration]
+touches: [src/claude_code_auth/manager.py, tests/test_manager.py]
+verification:
+  - New test in tests/test_manager.py exercises the refresh path without a 404
+  - bench/synthetic_multiturn_test.py works with a manager built WITHOUT the refresh_margin_ms=60_000 workaround
+acceptance: []
+status: open
+created: '2026-07-17T01:16:35'

@@ -28,8 +28,8 @@ tags: [research]
 verification:
   - Report appended to docs/THROUGHPUT_RESEARCH.md, explicitly marked AVAILABLE or NOT AVAILABLE to OAuth callers
 acceptance: []
-status: assigned
-assigned_to: research-wave1
-assigned_at: '2026-07-17T00:46:05'
+status: completed
+resolution: Service tiers / Priority Tier definitively NOT AVAILABLE to OAuth callers -- closed, no further investigation needed. Separately discovered Fast Mode (real, billing-gated, not a service_tier mechanism) -- see docs/THROUGHPUT_RESEARCH.md F3, F5.
 created: '2026-07-17T00:46:05'
-updated: '2026-07-17T00:46:05'
+updated: '2026-07-17T01:16:35'
+completed_at: '2026-07-17T01:16:35'

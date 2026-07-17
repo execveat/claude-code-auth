@@ -29,9 +29,7 @@ never in "Confirmed".
 
 ## Executive Summary
 
-*(updated as the research lands — placeholder during active investigation)*
-
-Prior session establishe two results before this autonomous pass began:
+Two headline results carried forward from before this autonomous pass:
 1. ProtonVPN exit-country and direct-vs-proxied routing have **no measurable
    effect** on Claude throughput (~30 CLI trials, 60-83 tok/s band throughout,
    all conditions overlap).
@@ -42,12 +40,176 @@ Prior session establishe two results before this autonomous pass began:
    making the *visible* text arrive at ~18 tok/s even though total decode
    throughput was a healthy 103.5 tok/s. This is separate from, and additive
    to, plain fixed-per-request-latency overhead (short total-output turns pay
-   the same ~2s TTFT as long ones, cited in a 254-turn historical bucketing:
-   out<300 tokens -> median 43 tok/s, out>=3000 -> median 86 tok/s).
+   the same ~2s TTFT as long ones).
+
+**New this pass (2026-07-17, wave 1 research + coordinator empirical checks):**
+3. **`output_config.effort` is a real, documented, GA request field** —
+   `low|medium|high|xhigh|max` — that is Claude Code's own `--effort` flag,
+   confirmed both in official docs and in `cc-xray` source. This is the
+   single most direct, intentional lever for controlling a request's
+   compute/thinking depth and therefore its tok/s profile.
+4. **A real contradiction between Anthropic's documentation and our own
+   empirical OAuth traffic was found and resolved by direct testing, not by
+   trusting either source blindly**: docs state manual
+   `thinking: {"type":"enabled","budget_tokens":N}` returns HTTP 400 on
+   Claude Sonnet 5 (and Opus 4.7/4.8) in favor of the newer
+   `thinking: {"type":"adaptive"}` + `effort` combination. Two direct raw-API
+   calls this session (both OAuth-authenticated, both against
+   `model: "claude-sonnet-5"`) show **both modes return HTTP 200** — the
+   documented restriction does not (yet, or not for OAuth callers) apply to
+   our actual traffic. See Confirmed Findings for the exact evidence.
+5. **"Fast Mode" is real, OAuth-reachable in principle, and gated behind a
+   billing feature Andrew's account does not currently have enabled** — a
+   direct probe (`speed: "fast"` + `anthropic-beta: fast-mode-2026-02-01` on
+   `claude-opus-4-8`) returned a clean, informative `HTTP 429: "Usage credits
+   are required for fast mode."` This is the single highest-value **unresolved,
+   actionable** lever this mission found: official docs claim up to **2.5x
+   higher output tokens/sec** from Fast Mode on Opus 4.7/4.8, at 2x-6x premium
+   pricing — but enabling it means turning on pay-as-you-go/overage billing on
+   Andrew's account, which is a real billing decision, not something this
+   session will make unilaterally. Flagged clearly in Recommended
+   Configuration for Andrew's own call when he's back.
+6. **Prompt caching has no effect on output/decode throughput at all** — per
+   official docs, verbatim: "no effect on output token generation... response
+   is identical to what you would get if prompt caching were not used."
+   Caching only helps input/prefill (TTFT) and cost. This closes a possible
+   conflation risk: our synthetic-multiturn test USES caching (for cost
+   reasons, correctly), but caching itself is not what's driving any tok/s
+   number we've measured.
+7. **Service tiers / Priority Tier are definitively NOT available to
+   OAuth/subscription callers** — Priority Tier capacity commitments require
+   an organization billing entity and are (as of this investigation) closed
+   to new purchases entirely; `claude-code-auth`'s OAuth credentials have no
+   such entity. `usage.service_tier` has been `"standard"` in 100% of trials
+   with zero variance, consistent with this. This question is closed.
 
 ## Confirmed Findings
 
-*(none yet added by this autonomous pass — filled in as experiments land)*
+### F1. `output_config.effort` — the real request-level effort field (2026-07-17)
+Exact wire shape: `{"output_config": {"effort": "high"}}` (nested, NOT a bare
+top-level `effort` field). Values: `low`, `medium`, `high`, `xhigh`, `max`.
+`xhigh` is only supported on newer models (Sonnet 5, Opus 4.7/4.8, Fable 5,
+Mythos 5) — Opus 4.6/Sonnet 4.6/Opus 4.5 top out at `max` without `xhigh`.
+`high` is the documented default and is defined as byte-identical to omitting
+the field entirely. This is Claude Code's own `--effort` flag
+(`resolveAppliedEffort()` in `cc-xray`), and works with or without extended
+thinking enabled — it's a behavioral signal affecting ALL output (text, tool
+calls, thinking depth), not purely a thinking-budget knob.
+Citations: platform.claude.com/docs/en/build-with-claude/effort;
+`cc-xray/src/services/api/claude.ts:437-465` (`configureEffortParams`);
+`cc-xray/src/utils/effort.ts:13-18`. There is also an Anthropic-internal-only
+numeric override path (`anthropic_internal.effort_override`, gated to
+`USER_TYPE==='ant'`) — confirmed to exist in source but **not reachable by
+external/OAuth callers**, irrelevant to this mission beyond being a documented
+dead end.
+
+### F2. Manual `thinking.enabled` mode does NOT 400 on Sonnet 5 via OAuth — empirically confirmed, contradicts docs (2026-07-17)
+Anthropic's adaptive-thinking docs page states that `thinking: {"type":
+"enabled", "budget_tokens": N}` is rejected with HTTP 400 on Claude Opus
+4.8/4.7 and Sonnet 5, which are supposed to require `thinking: {"type":
+"adaptive"}` (paired with `effort`) instead. **We tested this directly rather
+than trusting the docs or the earlier (docs-derived) claim at face value**:
+  - `uv run python bench/synthetic_multiturn_test.py --mode nonstream --thinking enabled --thinking-budget 4000 --max-tokens 500 --prompt "Reply with exactly the word OK and nothing else."` against `model: "claude-sonnet-5"` → **HTTP 200**, `stop_reason: "end_turn"`, real usage object returned (`cache_creation_input_tokens: 358167`, i.e. a genuine full request, not a cached no-op).
+  - `uv run python bench/synthetic_multiturn_test.py --mode nonstream --thinking adaptive --effort high --max-tokens 500 --cache-ttl none --prompt "Reply with exactly the word OK and nothing else."` against the same model → **also HTTP 200**.
+  - Both modes work. The documented restriction either (a) hasn't been rolled
+    out to enforcement yet, (b) doesn't apply to OAuth/subscription-authenticated
+    traffic the way it applies to API-key traffic, or (c) is real but
+    conditioned on something these two minimal probes didn't trigger (e.g. a
+    larger `budget_tokens`, a different max_tokens ratio). **Not fully
+    resolved** — this is a confirmed empirical fact (both modes return 200
+    for us, today), not a claim about *why* the docs disagree. Don't build
+    downstream logic that assumes manual mode is unusable on Sonnet 5;
+    equally, don't assume this holds at every budget_tokens value or holds
+    indefinitely — re-verify if Anthropic's enforcement changes.
+  - Practical implication: our EXISTING synthetic-multiturn results (the 4
+    trials from before this pass, using `thinking.enabled` + `budget_tokens:
+    8000`) are valid, real, HTTP-200 data — not invalidated by the docs claim.
+    But going forward, prefer `adaptive` + `effort` for new experiments where
+    possible, since that's very likely what Claude Code's own CLI actually
+    sends on Sonnet 5 and later models, making results more representative of
+    real usage.
+
+### F3. Fast Mode (`speed: "fast"`) is real, model-gated, and billing-gated (2026-07-17)
+Wire shape: top-level `"speed": "fast"` request field + `anthropic-beta:
+fast-mode-2026-02-01`. Per official docs
+(platform.claude.com/docs/en/build-with-claude/fast-mode): **"up to 2.5x
+higher output tokens per second (OTPS)"** on Claude Opus 4.8/4.7, at premium
+pricing (2x for Opus 4.8, 6x for Opus 4.7/4.6) — benefits are on OTPS/decode
+specifically, "not time to first token." This is exactly the metric this
+mission cares about.
+  - Model gate confirmed empirically: `model: "claude-sonnet-5"` +
+    `"speed":"fast"` → `HTTP 400: "'claude-sonnet-5' does not support the
+    speed parameter. This feature is only available on supported models."`
+  - Billing gate confirmed empirically: `model: "claude-opus-4-8"` +
+    `"speed":"fast"` + the beta header → `HTTP 429: "Usage credits are
+    required for fast mode."` — i.e., Fast Mode requires pay-as-you-go/overage
+    "usage credits" billing to be enabled on the account, which is separate
+    from (and layered on top of) a base Claude subscription. Andrew's account
+    does not currently have this enabled (untested whether it's a simple
+    console toggle or requires a support/sales conversation — not
+    investigated further since enabling it is a billing decision, not ours to make).
+  - `cc-xray` confirms Fast Mode is reachable via OAuth/subscription auth
+    specifically (its own disabled-reason messaging distinguishes OAuth
+    "requires a paid subscription" from API-key "purchase credits" — meaning
+    the OAuth path is real and intended, just gated on this specific
+    credits flag for us right now), and further gates on: 1P API only (no
+    Bedrock/Vertex/Foundry), not combinable with Batch API or a Priority Tier
+    commitment, and a server-side rate-limit "cooldown."
+  - Citations: platform.claude.com/docs/en/build-with-claude/fast-mode;
+    `cc-xray/src/utils/fastMode.ts:41-176`; `cc-xray/src/constants/betas.ts:19`;
+    direct probes above (request_id `req_011Cd6jv244xSuxVD58h6dd1` for the
+    model-gate 400, `req_011Cd6jw23McxbZEVWpCCkzy` for the credits-gate 429).
+
+### F4. Prompt caching affects TTFT/cost only, never decode throughput (2026-07-17)
+Official docs, verbatim: "Prompt caching has no effect on output token
+generation. The response you receive is identical to what you would get if
+prompt caching were not used." The benefit is confined to input/prefix
+processing (better TTFT for long documents). Do not attribute any observed
+tok/s difference across trials to cache hit/miss state — if such a
+correlation is ever observed, the real cause is elsewhere (most likely
+thinking-token proportion, per the Executive Summary's finding #2) and needs
+independent investigation. Citation: platform.claude.com prompt caching guide.
+
+### F5. Service tiers / Priority Tier: NOT available to OAuth callers — closed question (2026-07-17)
+Priority Tier is an organization capacity commitment (1/3/6/12-month token/min
+commitment, purchased via console/sales) — **capacity commitment purchases are
+currently closed to new customers entirely** per an active warning banner on
+Anthropic's own service-tiers doc, and `claude-code-auth`'s OAuth credentials
+have no organization billing entity that could hold one regardless. Matches
+100% of observed `usage.service_tier: "standard"` values with zero variance
+across every trial this investigation. The only request-settable values are
+`service_tier: "auto"` (default) and `"standard_only"` — `"priority"` is a
+response-only value never validly sent. **No further investigation needed on
+`service_tier` itself** — this question is closed, not open. (Distinct from
+Fast Mode, F3, which is a separate mechanism entirely, not implemented via
+`service_tier`.) Citation: platform.claude.com/docs/en/api/service-tiers.
+
+### F6. `context-management-2025-06-27` is a context-size/cache-cost tradeoff, not a throughput lever (2026-07-17)
+Server-side pre-inference pruning (`context_management: {edits: [...]}`, two
+strategies: `clear_tool_uses_20250919` and `clear_thinking_20251015`). No
+documented latency/throughput effect in either direction. The real, load-bearing
+tradeoff: clearing tool_results or thinking blocks **invalidates the cached
+prefix from that point forward**, forcing a fresh (expensive) cache write —
+so this beta trades context-window/cost pressure against cache-hit rate, and
+is unrelated to decode speed. Citation: platform.claude.com context-editing guide.
+
+### F7. Structured outputs / `output_config.format`: no documented decode-speed effect; grammar-compile latency is real but one-time (2026-07-17)
+GA feature (no beta header required currently on most models);
+`output_config.format = {"type":"json_schema","schema":{...}}` is genuine
+constrained/grammar decoding (not post-hoc validation-retry). Documented
+costs: (a) first use of a NEW schema pays extra latency while the grammar
+compiles — compiled grammars are cached 24h and reused across calls; (b)
+slightly higher input token count from an injected format-explanation system
+prompt. **No documented number for steady-state (warm-cache) decode tok/s
+impact in either direction** — this remains a genuine open question (see
+Open Questions), not a settled "no effect." Claude Code's own 11-beta header
+list does not include any structured-outputs beta, so the CLI's own traffic
+gives us no data point here. Citation: platform.claude.com/docs/en/build-with-claude/structured-outputs.
+
+### F8. `usage.output_tokens_details.thinking_tokens` — exact thinking/visible split (carried forward, confirmed pre-pass)
+Real, present-in-practice response field giving the exact split between
+thinking and visible output tokens — used throughout this investigation's
+harness (`bench/synthetic_multiturn_test.py`).
 
 ## Rejected / Superseded Hypotheses
 
@@ -59,14 +221,100 @@ Prior session establishe two results before this autonomous pass began:
 - **Claude Code CLI's `ttft_ms` anomaly reflects a real network/server issue**
   — refuted: 6 raw wire-level calls (bypassing the CLI) never showed the
   anomaly; it's a CLI-side instrumentation bug. (Prior session.)
+- **"Manual `thinking.enabled` mode is unusable on Sonnet 5" (a plausible
+  reading of Anthropic's own docs)** — superseded by F2 above: two direct
+  OAuth-authenticated probes both returned HTTP 200 for manual mode on
+  `claude-sonnet-5`. Kept here explicitly so nobody re-reads the docs, gets
+  scared off manual mode, and re-derives the same (refuted-for-us) caution.
 
 ## Open Questions
 
-*(populated by the research wave — each gets a proposed cheapest disproof test)*
+- **Why does Anthropic's documented Sonnet-5 manual-thinking-mode 400
+  restriction not manifest on our OAuth traffic (F2)?** Proposed test: try a
+  larger `budget_tokens` (e.g. 32000) and a case where `budget_tokens` is
+  close to or exceeds `max_tokens`, to see if the restriction is
+  conditional rather than absolute. Also try the identical request via an
+  API-key-authenticated call (would require a separate API key — may not be
+  available/wanted) to isolate "OAuth vs API-key enforcement" as the variable.
+- **Does `output_config.effort` measurably change tok/s, thinking-token
+  fraction, and wall-clock, holding everything else fixed?** This is now the
+  highest-priority experiment — proposed test: sweep `low/medium/high/xhigh/max`
+  at fixed `thinking: {"type":"adaptive"}`, same prompt, N≥2 trials each,
+  using `bench/synthetic_multiturn_test.py --effort <value>`.
+  **Status: IN PROGRESS — coordinator running this sweep directly (real-API
+  cost, sequenced to avoid concurrency confounds); see Changelog for results
+  as they land.**
+- **Streaming vs non-streaming, CONTROLLED for effort/thinking** — the
+  original question that triggered this whole mission. The earlier 4-trial
+  result suggesting "non-streaming is faster" was confounded by
+  uncontrolled thinking-proportion variance. Proposed test: fixed
+  `effort`, fixed `thinking: adaptive`, N≥5 trials per mode, same prompt
+  pool, sequential (not concurrent) execution to avoid the concurrency
+  confound polluting a single-lever test.
+- **Does `redact-thinking-2026-02-12` (sent unconditionally by Claude Code)
+  actually cause the redacted/empty-visible-thinking behavior we've seen in
+  100% of trials so far, or is that a model default independent of the
+  beta?** Proposed test: identical request with vs without this beta header,
+  holding thinking mode fixed, compare `ttft_thinking_ms`/visible thinking
+  chars.
+- **Does `thinking.display` exist as a request-settable field
+  (`"omitted"` vs `"summarized"`), and does `"omitted"` genuinely give faster
+  time-to-first-VISIBLE-text-token under streaming as one wave-1 report
+  suggested?** Not yet independently verified whether `display` is
+  request-settable at all vs purely a model-version default — needs a doc
+  re-check before designing the A/B.
+- **Does `token-efficient-tools-2026-03-28` measurably reduce input tokens
+  and/or wall-clock on a tool-call-heavy synthetic history?**
+- **Does 1h vs 5m cache TTL reduce prefill/TTFT *variance* across a
+  long-running session** (not disputed: caching doesn't touch decode, per
+  F4 — this question is narrowly about TTFT variance over a session with
+  idle gaps, e.g. does a 1h TTL avoid re-paying cache-write cost across a
+  6-8 minute gap that would blow past a 5m TTL)? Proposed test: repeated
+  trials with deliberate idle gaps straddling the 5m boundary, both TTLs,
+  compare `cache_creation_input_tokens` incidence and TTFT.
+  Also open: whether `cache_control.scope: "global"` (an internal,
+  undocumented-on-the-public-caching-page field Claude Code sends via
+  `prompt-caching-scope-2026-01-05`) is even accepted for a single-user OAuth
+  caller, and if so whether it does anything observable for us (a priori:
+  probably not, since the mechanism exists to share a cache ACROSS multiple
+  users of one org, which doesn't apply to a lone subscriber).
+- **Does concurrency (N parallel raw API calls, same vs different OAuth
+  session/process) change per-request tok/s** — the user's other explicit
+  ask, not yet tested at all. Needs its own ISOLATED test wave (nothing else
+  hitting the API concurrently) to avoid confounding every other single-lever
+  experiment above, and vice versa.
+- **Does grammar-constrained decoding (structured outputs, warm cache) change
+  steady-state decode tok/s at all** — no data in either direction (F7).
+- **Does `inference_geo` (an explicit, documented per-request region-override
+  field, distinct from the already-closed client-IP VPN question) change
+  TTFT or decode speed?**
+- **Does `cache-diagnosis-2026-04-07` do anything observable** — zero
+  documentation found anywhere; propose sending it alone on an otherwise
+  normal request and diffing the response/usage shape against a baseline.
 
 ## Recommended Configuration
 
-*(placeholder — populated once experiments confirm specific levers)*
+*(will fill in firmly once the effort-sweep and controlled streaming-vs-
+nonstream experiments land; provisional guidance below)*
+
+- **Prefer `thinking: {"type":"adaptive"}` + `output_config.effort` over
+  manual `budget_tokens`** for new experiments and for any convenience helper
+  shipped in this library, since it's very likely what Claude Code itself
+  actually sends on Sonnet-5-class models, and it's the officially-supported
+  path going forward — even though manual mode still empirically works today (F2).
+- **Fast Mode (F3) is the single biggest concrete lever this mission has
+  found, and it needs Andrew's decision, not this session's.** Enabling
+  pay-as-you-go "usage credits" billing unlocks up to a documented 2.5x OTPS
+  on Opus 4.7/4.8 at 2x-6x premium pricing. This session will not enable
+  billing changes unilaterally — flagging clearly for Andrew to evaluate the
+  cost/benefit himself. If he opts in, re-run this mission's Fast Mode probe
+  to confirm activation, then benchmark it properly against a same-model
+  non-fast baseline.
+- **Don't chase `service_tier`/Priority Tier** (F5) — confirmed closed to us,
+  don't re-investigate.
+- **Prompt caching should be treated purely as a cost/TTFT optimization in
+  any helper tooling** — never marketed or reasoned about as a decode-speed
+  lever (F4).
 
 ## Methodology Notes
 
@@ -77,14 +325,48 @@ Prior session establishe two results before this autonomous pass began:
   produces a bare 429 with no rate-limit headers, which looks like a quota
   problem but isn't.
 - Every experiment that isn't a one-line config toggle should be reproducible
-  from a committed script under `~/Projects/cc/claude-code-auth/bench/` (or
-  wherever the integration wave lands the benchmarking tooling) — not a
-  one-off `/tmp` script that evaporates.
+  from a committed script under `bench/` — not a one-off `/tmp` script that
+  evaporates. `bench/synthetic_multiturn_test.py` now supports `--thinking
+  {enabled,adaptive,disabled}`, `--effort`, `--speed`, `--service-tier`,
+  `--inference-geo`, `--extra-beta` (repeatable), `--model`, and `--cache-ttl`
+  as of 2026-07-17, so most single-lever A/Bs are just different flag
+  combinations against the same harness — see `bench/README.md`.
 - Real-money real-API calls: keep a running approximate cost tally in this
   doc's changelog so the scope of spend stays visible.
+- **Serialize real-API measurement experiments to avoid a concurrency
+  confound.** Several open questions above are single-lever A/Bs (effort,
+  caching, redact-thinking, etc.) that assume no OTHER concurrent load is
+  hitting the same account at the same time — and the concurrency question
+  itself (does parallel load change per-request tok/s?) is one of the things
+  under investigation. Running multiple experiment forks in parallel, each
+  hitting the live API, would contaminate every other experiment's numbers
+  with an uncontrolled concurrency effect. Single-lever experiments run
+  SERIALLY (one at a time, coordinator-run or one dedicated fork); the
+  concurrency experiment gets its OWN isolated wave with nothing else calling
+  the API at the same time.
 
 ## Changelog
 
+- 2026-07-17 (wave 1 + coordinator checks): Wave 1 research landed (6 parallel
+  forks, TASK-001..006) — catalogued ~20 anthropic-beta values beyond the
+  known 11 (including `fast-mode-2026-02-01`, `redact-thinking-2026-02-12`,
+  `token-efficient-tools-2026-03-28`); confirmed the `effort` request field
+  (F1); found and empirically resolved a docs-vs-reality contradiction on
+  manual thinking mode (F2, 2 real API calls, ~700 tokens total, negligible
+  cost); confirmed Fast Mode's existence and its two gates via 2 direct
+  probes (F3, 1 real Opus-4.8 call at max_tokens=50, negligible cost);
+  confirmed prompt caching is TTFT/cost-only (F4); closed the service-tier
+  question definitively (F5); classified context-management as a
+  cache-cost tradeoff not a throughput lever (F6); documented structured
+  outputs' grammar-compile-latency-only claim (F7). Migrated the bench
+  harness from `/tmp` into `bench/` (commit `54064b5`) and fixed a real,
+  pre-existing broken `uv run pytest` gate (stale venv shebang from a
+  different, since-deleted project directory) as part of that migration.
+  Upgraded `bench/synthetic_multiturn_test.py` to a full argparse CLI
+  supporting thinking mode, effort, speed, service_tier, inference_geo, and
+  arbitrary extra beta headers, to serve as the harness for the next wave of
+  experiments. Running cost tally: ~$8-10 (prior session + this mission's
+  own testing) + negligible (<$0.05) for this pass's 3 probe calls.
 - 2026-07-17: Doc created; autonomous 8h research+build pass kicked off
   (autopilot + parallel-orchestration skills). Prior session's two headline
   results (VPN null result, thinking-token-proportion finding) carried

@@ -1,0 +1,31 @@
+id: TASK-013
+title: 'EXP: cache TTL (1h vs 5m) session-gap A/B'
+description: 'Long-running (real wall-clock, not token-expensive) test: repeated
+
+  trials with deliberate idle gaps straddling the 5-minute boundary
+
+  (e.g. 6-8 min gaps), both TTL settings, comparing
+
+  cache_creation_input_tokens incidence (cache miss/rewrite) and TTFT
+
+  across the gap. This can run in the background over an hour or more
+
+  while other waves proceed -- it is passive waiting, not active compute,
+
+  so it does NOT trip the concurrency-confound rule the same way a busy
+
+  sweep would (confirm no OTHER experiment fires a real request during
+
+  this one''s brief active moments before treating results as clean).
+
+  '
+workstream: experiments
+priority: 40
+depends: []
+scope: []
+tags: [serial]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
+acceptance: []
+status: open
+created: '2026-07-17T01:16:35'

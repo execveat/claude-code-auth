@@ -10,26 +10,35 @@ via raw API using claude-code-auth -- bypassing the Claude Code CLI/harness
 entirely (no --resume/--fork-session, so no risk of the model inheriting
 "stop and ask permission" framing from the resumed session's own history).
 
-Tests whether extended-thinking token proportion (highly variable, confirmed
-via usage.output_tokens_details.thinking_tokens) and streaming-vs-non-
-streaming interact with real, realistic (long, cached) context -- not just
-clean synthetic single-turn benchmarks. Extended thinking is ENABLED with a
-real budget so we can separate TOTAL output tokens (thinking + visible text,
-what usage.output_tokens actually reports) from VISIBLE-ONLY output tokens
-(text blocks only -- what a person watching the terminal actually sees).
-Reports both tok/s figures plus a time breakdown: time-to-first-thinking-
-token vs time-to-first-VISIBLE-text-token, so we can see exactly how much
-wall-clock is invisible thinking before any visible output starts.
+Supports both the legacy manual thinking mode (`thinking.budget_tokens`) and
+the newer adaptive mode (`thinking.type=adaptive` + `output_config.effort`).
+Docs claim manual `enabled` mode returns HTTP 400 on Sonnet 5/Opus 4.7/4.8 --
+if that's true for OUR OAuth-authenticated calls specifically is exactly what
+this harness exists to check; don't assume either the docs or a stale prior
+finding without a fresh, deliberate probe (see bench/README.md's "resolving
+the thinking-mode contradiction" section).
+
+Extended thinking, when enabled in either mode, lets us separate TOTAL output
+tokens (thinking + visible text, what usage.output_tokens actually reports)
+from VISIBLE-ONLY output tokens (text blocks only -- what a person watching
+the terminal actually sees). Reports both tok/s figures plus a time
+breakdown: time-to-first-thinking-token vs time-to-first-VISIBLE-text-token,
+so we can see exactly how much wall-clock is invisible thinking before any
+visible output starts.
 
 Usage:
-    uv run python bench/synthetic_multiturn_test.py stream "<prompt>"
-    uv run python bench/synthetic_multiturn_test.py nonstream "<prompt>"
+    uv run python bench/synthetic_multiturn_test.py --mode stream --prompt "..."
+    uv run python bench/synthetic_multiturn_test.py --mode nonstream --thinking adaptive --effort high
+    uv run python bench/synthetic_multiturn_test.py --mode stream --thinking enabled --thinking-budget 8000
+    uv run python bench/synthetic_multiturn_test.py --mode stream --thinking disabled --effort low
+    uv run python bench/synthetic_multiturn_test.py --model claude-opus-4-8 --extra-beta fast-mode-2026-02-01 --speed fast
 
 Requires bench/fixtures/synthetic_history.json to exist -- see bench/README.md
 to build it (gitignored; not checked in, since it's a verbatim slice of a
 real conversation).
 """
 
+import argparse
 import json
 import sys
 import time
@@ -40,11 +49,10 @@ import requests
 from claude_code_auth import ClaudeCodeOAuthManager
 
 URL = "https://api.anthropic.com/v1/messages"
-MODEL = "claude-sonnet-5"
+DEFAULT_MODEL = "claude-sonnet-5"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HISTORY_PATH = REPO_ROOT / "bench" / "fixtures" / "synthetic_history.json"
-THINKING_BUDGET = 8000
-MAX_TOKENS = 20000
+DEFAULT_MAX_TOKENS = 20000
 
 
 def load_shared_prefix():
@@ -73,17 +81,28 @@ def first_user_message_text(messages):
     return ""
 
 
-def build_messages(trailing_prompt):
+def build_messages(trailing_prompt, cache_ttl):
     turns = load_shared_prefix()
-    last_block = turns[-1]["content"][-1]
-    last_block["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
+    if cache_ttl:
+        last_block = turns[-1]["content"][-1]
+        last_block["cache_control"] = {"type": "ephemeral", "ttl": cache_ttl}
     turns.append(
         {"role": "user", "content": [{"type": "text", "text": trailing_prompt}]}
     )
     return turns
 
 
-def build_body(messages, stream):
+def build_thinking_block(args):
+    if args.thinking == "disabled":
+        return None
+    if args.thinking == "enabled":
+        return {"type": "enabled", "budget_tokens": args.thinking_budget}
+    if args.thinking == "adaptive":
+        return {"type": "adaptive"}
+    raise ValueError(f"unknown thinking mode {args.thinking!r}")
+
+
+def build_body(messages, args):
     # Lower refresh margin: claude-code-auth's proactive refresh (default
     # 30-min-out margin) currently 404s against the token endpoint (a
     # pre-existing, separate bug -- tracked, not fixed here). The access
@@ -92,23 +111,49 @@ def build_body(messages, stream):
     manager = ClaudeCodeOAuthManager(refresh_margin_ms=60_000)
     text = first_user_message_text(messages)
     system = manager.build_system_blocks(text)
-    return {
-        "model": MODEL,
-        "max_tokens": MAX_TOKENS,
-        "stream": stream,
+
+    body = {
+        "model": args.model,
+        "max_tokens": args.max_tokens,
+        "stream": args.mode == "stream",
         "system": system,
-        "thinking": {"type": "enabled", "budget_tokens": THINKING_BUDGET},
         "messages": messages,
-    }, manager.build_headers()
+    }
+
+    thinking_block = build_thinking_block(args)
+    if thinking_block is not None:
+        body["thinking"] = thinking_block
+
+    output_config = {}
+    if args.effort:
+        output_config["effort"] = args.effort
+    if output_config:
+        body["output_config"] = output_config
+
+    if args.speed:
+        body["speed"] = args.speed
+    if args.service_tier:
+        body["service_tier"] = args.service_tier
+    if args.inference_geo:
+        body["inference_geo"] = args.inference_geo
+
+    headers = manager.build_headers()
+    if args.extra_beta:
+        existing = headers.get("anthropic-beta", "")
+        values = [v for v in existing.split(",") if v] + args.extra_beta
+        headers["anthropic-beta"] = ",".join(
+            dict.fromkeys(values)
+        )  # de-dup, keep order
+
+    return body, headers
 
 
-def run_streaming(messages):
-    body, headers = build_body(messages, stream=True)
+def run_streaming(messages, args):
+    body, headers = build_body(messages, args)
     t_start = time.time()
     t_first_any = None
     t_first_thinking = None
     t_first_text = None
-    block_types = {}  # index -> type
     thinking_chars = 0
     text_chars = 0
     output_tokens = None
@@ -130,10 +175,7 @@ def run_streaming(messages):
             etype = evt.get("type")
             now = time.time()
 
-            if etype == "content_block_start":
-                idx = evt["index"]
-                block_types[idx] = evt["content_block"]["type"]
-            elif etype == "content_block_delta":
+            if etype == "content_block_delta":
                 if t_first_any is None:
                     t_first_any = now
                 delta = evt.get("delta", {})
@@ -171,8 +213,8 @@ def run_streaming(messages):
     }
 
 
-def run_nonstreaming(messages):
-    body, headers = build_body(messages, stream=False)
+def run_nonstreaming(messages, args):
+    body, headers = build_body(messages, args)
     t_start = time.time()
     resp = requests.post(URL, headers=headers, json=body, timeout=300)
     if resp.status_code != 200:
@@ -258,25 +300,72 @@ def summarize(r):
             )
     cache_read = (r.get("usage") or {}).get("cache_read_input_tokens")
     cache_create = (r.get("usage") or {}).get("cache_creation_input_tokens")
+    service_tier = (r.get("usage") or {}).get("service_tier")
+    speed = (r.get("usage") or {}).get("speed")
     lines.append(
-        f"cache_read={cache_read} cache_create={cache_create} stop_reason={r['stop_reason']}"
+        f"cache_read={cache_read} cache_create={cache_create} "
+        f"service_tier={service_tier} speed={speed} stop_reason={r['stop_reason']}"
     )
     return "\n".join(lines)
 
 
-if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "stream"
-    prompt = (
-        sys.argv[2]
-        if len(sys.argv) > 2
-        else "List exactly 60 distinct, real, verifiable facts about deep-sea creatures. One fact per line. No headers, no numbering, no commentary."
+def parse_args():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--mode", choices=["stream", "nonstream"], default="stream")
+    p.add_argument(
+        "--prompt",
+        default=(
+            "List exactly 60 distinct, real, verifiable facts about deep-sea "
+            "creatures. One fact per line. No headers, no numbering, no commentary."
+        ),
     )
-    messages = build_messages(prompt)
-    if mode == "stream":
-        result = run_streaming(messages)
-    elif mode == "nonstream":
-        result = run_nonstreaming(messages)
+    p.add_argument("--model", default=DEFAULT_MODEL)
+    p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
+    p.add_argument(
+        "--thinking",
+        choices=["enabled", "adaptive", "disabled"],
+        default="enabled",
+        help="thinking.type -- 'enabled' is the legacy manual mode (needs "
+        "--thinking-budget), 'adaptive' is the newer mode paired with "
+        "--effort, 'disabled' omits the thinking block entirely",
+    )
+    p.add_argument("--thinking-budget", type=int, default=8000)
+    p.add_argument(
+        "--effort",
+        choices=["low", "medium", "high", "xhigh", "max"],
+        default=None,
+        help="output_config.effort -- Claude Code's own --effort flag maps here",
+    )
+    p.add_argument(
+        "--speed",
+        choices=["fast"],
+        default=None,
+        help="top-level speed param (Fast Mode)",
+    )
+    p.add_argument("--service-tier", choices=["auto", "standard_only"], default=None)
+    p.add_argument("--inference-geo", default=None)
+    p.add_argument(
+        "--extra-beta",
+        action="append",
+        default=[],
+        help="append an extra anthropic-beta value (repeatable)",
+    )
+    p.add_argument(
+        "--cache-ttl",
+        default="1h",
+        help="cache_control ttl on the shared prefix's last block ('1h', '5m', or 'none' to disable)",
+    )
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    if args.cache_ttl == "none":
+        args.cache_ttl = None
+    messages = build_messages(args.prompt, args.cache_ttl)
+    if args.mode == "stream":
+        result = run_streaming(messages, args)
     else:
-        raise SystemExit(f"unknown mode {mode!r}")
+        result = run_nonstreaming(messages, args)
     print(summarize(result))
     print(json.dumps(result, indent=2), file=sys.stderr)

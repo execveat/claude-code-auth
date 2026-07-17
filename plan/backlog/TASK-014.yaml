@@ -1,0 +1,31 @@
+id: TASK-014
+title: 'EXP: concurrency test (N parallel raw API calls)'
+description: 'The user''s other explicit ask, not yet touched: does per-request tok/s
+
+  degrade under N concurrent raw API calls from the same OAuth account?
+
+  Test same-session (one process, multiple connections) vs
+
+  different-session (multiple OS subprocesses) concurrency, e.g. N=2,4,8
+
+  simultaneous calls. MUST run in its own fully isolated wave/window --
+
+  nothing else may hit the live API at the same time, or every other
+
+  single-lever experiment''s numbers get silently contaminated by this
+
+  one''s load, and vice versa this test''s own numbers get contaminated by
+
+  unrelated traffic. Schedule deliberately apart from E1-E4.
+
+  '
+workstream: experiments
+priority: 65
+depends: []
+scope: []
+tags: [serial]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
+acceptance: []
+status: open
+created: '2026-07-17T01:16:35'

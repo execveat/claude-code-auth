@@ -1,0 +1,23 @@
+id: TASK-015
+title: 'EXP: structured-output grammar-compile latency (cold vs warm schema)'
+description: 'A/B: first call with a novel JSON schema (output_config.format) vs a
+
+  second call reusing the SAME schema within 24h (cached grammar),
+
+  comparing wall-clock/TTFT to isolate compile-time overhead. Separately,
+
+  compare steady-state (warm-cache) decode tok/s with structured output
+
+  active vs entirely absent, same prompt/context, to fill the F7 data gap.
+
+  '
+workstream: experiments
+priority: 35
+depends: []
+scope: []
+tags: [serial]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
+acceptance: []
+status: open
+created: '2026-07-17T01:16:35'

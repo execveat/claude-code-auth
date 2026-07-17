@@ -1,0 +1,14 @@
+id: TASK-017
+title: Fix pre-existing ruff findings in src/stores/keychain.py + tests/test_manager.py
+description: uv run ruff check bench/ src/ tests/ surfaces 9 pre-existing findings (F401 unused Path import, E402 module-level imports not at top) discovered once ruff was properly declared as a dev dependency (TASK-007's sibling fix). Not introduced by any change this mission -- quick, mechanical, low-risk cleanup.
+workstream: integration
+priority: 25
+depends: []
+scope: []
+tags: [cleanup]
+touches: [src/claude_code_auth/stores/keychain.py, tests/test_manager.py]
+verification:
+  - uv run ruff check bench/ src/ tests/ passes with zero findings
+acceptance: []
+status: open
+created: '2026-07-17T01:17:06'

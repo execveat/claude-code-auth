@@ -1,0 +1,21 @@
+id: TASK-016
+title: 'EXP: inference_geo request-level override test'
+description: 'inference_geo is a documented, explicit per-request region-override
+
+  field (distinct from the already-closed client-IP/VPN-routing
+
+  question). Test whether setting it changes TTFT or decode tok/s for a
+
+  couple of candidate regions vs the default/unset case.
+
+  '
+workstream: experiments
+priority: 30
+depends: []
+scope: []
+tags: [serial]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
+acceptance: []
+status: open
+created: '2026-07-17T01:16:35'

@@ -22,8 +22,8 @@ tags: [research]
 verification:
   - Report appended to docs/THROUGHPUT_RESEARCH.md
 acceptance: []
-status: assigned
-assigned_to: research-wave1
-assigned_at: '2026-07-17T00:46:05'
+status: completed
+resolution: Structured outputs (output_config.format) confirmed GA, genuine grammar-constrained decoding, first-use compile latency only (24h cache) -- no documented steady-state decode tok/s effect either direction. See docs/THROUGHPUT_RESEARCH.md F7.
 created: '2026-07-17T00:46:05'
-updated: '2026-07-17T00:46:05'
+updated: '2026-07-17T01:16:35'
+completed_at: '2026-07-17T01:16:35'
