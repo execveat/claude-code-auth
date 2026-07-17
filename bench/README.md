@@ -153,11 +153,6 @@ formatted string so it can be aggregated across trials.
 
 ## Known caveats
 
-- `ClaudeCodeOAuthManager(refresh_margin_ms=60_000)` is used here to work
-  around a real, separate, tracked bug: the library's default 30-minute
-  proactive-refresh margin currently 404s against the token endpoint even
-  for a still-valid token. See `docs/THROUGHPUT_RESEARCH.md` and the
-  `claude-code-auth` planq backlog for the fix.
 - The OAuth attribution/fingerprint system block (`manager.build_system_blocks`)
   is mandatory — omitting it produces a bare 429 that looks like a quota
   issue but isn't.
