@@ -1,0 +1,31 @@
+id: TASK-018
+title: 'EXP: thinking.display omitted vs summarized -- streaming TTFT A/B'
+description: 'Confirmed (TASK-009, F9): thinking.display is request-settable
+
+  ("omitted"/"summarized"), and Anthropic''s docs claim "omitted" gives a
+
+  real, documented faster time-to-first-VISIBLE-text-token under
+
+  streaming, with NO change to total tokens billed or wall-clock cost.
+
+  Run the actual A/B: fixed effort, fixed thinking type (adaptive),
+
+  streaming only, N>=5 trials per display value, compare
+
+  ttft_text_ms specifically (not total wall time). Requires adding a
+
+  --thinking-display flag to bench/synthetic_multiturn_test.py first
+
+  (currently thinking.display is not exposed on its CLI).
+
+  '
+workstream: experiments
+priority: 50
+depends: []
+scope: []
+tags: [serial]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving this Open Question
+acceptance: []
+status: open
+created: '2026-07-17T01:29:25'

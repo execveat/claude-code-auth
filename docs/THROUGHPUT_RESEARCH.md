@@ -211,6 +211,30 @@ Real, present-in-practice response field giving the exact split between
 thinking and visible output tokens — used throughout this investigation's
 harness (`bench/synthetic_multiturn_test.py`).
 
+### F9. `thinking.display` is a real, request-settable field — confirmed (2026-07-17, TASK-009)
+Nested inside the thinking config: `thinking: {"type":"adaptive", "display":
+"summarized"}` (or `"omitted"`). Two values: `"summarized"` (readable
+thinking text) and `"omitted"` (empty `thinking` field, real `signature`
+still present for multi-turn continuity). `"omitted"` is the confirmed
+DEFAULT on Sonnet 5, Opus 4.7/4.8, Fable 5, Mythos 5 — a silent change from
+Opus 4.6/Sonnet 4.6 where `"summarized"` was default — which is why 100% of
+this mission's trials on Sonnet 5 have shown empty visible thinking despite
+nonzero billed thinking tokens. Per official docs, `"omitted"` gives a real,
+documented streaming-only benefit: **faster time-to-first-VISIBLE-text-token**
+("the server skips streaming thinking tokens entirely and delivers only the
+signature, so the final text response begins streaming sooner") — but
+**this affects only when visible text starts streaming, not total wall-clock
+or billing**: "You're still charged for the full thinking tokens. Omitting
+reduces latency, not cost." A clean, actionable, previously-undocumented
+lever for streaming TTFT specifically — queued as a new experiment below.
+Also confirmed same pass: Sonnet 5/Opus 4.7/4.8/Fable 5/Mythos 5 reject
+non-default `temperature`/`top_p`/`top_k` with HTTP 400 unconditionally
+(closes TASK-006's previously-unconfirmed sampling-restriction claim), and
+switching between `adaptive` and `enabled`/`disabled` thinking modes breaks
+the messages-side prompt-cache breakpoint (system/tools stay cached) — don't
+alternate thinking modes mid-sweep in any experiment or the cache-miss cost
+will confound the timing numbers.
+
 ## Rejected / Superseded Hypotheses
 
 - **VPN exit-country geo-mirroring** — hypothesized that Anthropic might route
@@ -230,12 +254,29 @@ harness (`bench/synthetic_multiturn_test.py`).
 ## Open Questions
 
 - **Why does Anthropic's documented Sonnet-5 manual-thinking-mode 400
-  restriction not manifest on our OAuth traffic (F2)?** Proposed test: try a
-  larger `budget_tokens` (e.g. 32000) and a case where `budget_tokens` is
-  close to or exceeds `max_tokens`, to see if the restriction is
-  conditional rather than absolute. Also try the identical request via an
-  API-key-authenticated call (would require a separate API key — may not be
-  available/wanted) to isolate "OAuth vs API-key enforcement" as the variable.
+  restriction not manifest on our OAuth traffic (F2)?** STILL UNRESOLVED as
+  of TASK-009's follow-up pass — the docs are, if anything, MORE explicit
+  than first read: the adaptive-thinking page names Sonnet 5 directly with
+  no hedging ("Availability: All models except ... Claude Sonnet 5 ...
+  rejected with a 400 error"), yet both this mission's probes and the
+  earlier 4-trial pre-compaction test return 200 with real nonzero
+  thinking_tokens. TASK-009 surfaced a sharper, not-yet-run disproof test:
+  **both trials that got a 200 used a TRIVIAL prompt** (`thinking_tokens:
+  0` in this pass's own two probes) — a 200-with-zero-thinking is
+  consistent with manual mode being genuinely honored AND with the server
+  silently coercing an invalid `type` into adaptive-like behavior. The
+  earlier 4-trial test DID use substantive prompts with real nonzero
+  thinking_tokens, but nobody has checked whether the *magnitude* scaled
+  with the requested `budget_tokens` (proving true compliance) or stayed
+  roughly constant regardless of it (implying silent coercion). Proposed
+  test, not yet run: same complex prompt at `budget_tokens=1024` vs
+  `budget_tokens=32000` — if thinking_tokens scales with the budget, manual
+  mode is genuinely honored for us; if it doesn't, Sonnet 5 is silently
+  ignoring `enabled` and running adaptive-equivalent behavior under a
+  lenient, non-erroring OAuth path. cc-xray cross-check (TASK-009):
+  confirmed zero OAuth-vs-API-key branching anywhere near thinking-mode
+  logic, and zero changelog evidence of auth-method-specific enforcement —
+  so "OAuth is simply more lenient" remains unconfirmed, not refuted.
 - **Does `output_config.effort` measurably change tok/s, thinking-token
   fraction, and wall-clock, holding everything else fixed?** This is now the
   highest-priority experiment — proposed test: sweep `low/medium/high/xhigh/max`
@@ -257,12 +298,13 @@ harness (`bench/synthetic_multiturn_test.py`).
   beta?** Proposed test: identical request with vs without this beta header,
   holding thinking mode fixed, compare `ttft_thinking_ms`/visible thinking
   chars.
-- **Does `thinking.display` exist as a request-settable field
-  (`"omitted"` vs `"summarized"`), and does `"omitted"` genuinely give faster
-  time-to-first-VISIBLE-text-token under streaming as one wave-1 report
-  suggested?** Not yet independently verified whether `display` is
-  request-settable at all vs purely a model-version default — needs a doc
-  re-check before designing the A/B.
+- ~~Does `thinking.display` exist as a request-settable field~~ — **RESOLVED,
+  see F9**: yes, confirmed request-settable, `"omitted"`/`"summarized"`,
+  streaming-TTFT-only effect (no change to total tokens or cost). **Still
+  open**: the actual A/B has not been run — measure streaming
+  time-to-first-visible-text-token with `display: "omitted"` vs
+  `"summarized"`, holding effort/thinking-type/prompt fixed, to confirm the
+  documented benefit materializes for us and to size it.
 - **Does `token-efficient-tools-2026-03-28` measurably reduce input tokens
   and/or wall-clock on a tool-call-heavy synthetic history?**
 - **Does 1h vs 5m cache TTL reduce prefill/TTFT *variance* across a
@@ -347,6 +389,37 @@ nonstream experiments land; provisional guidance below)*
 
 ## Changelog
 
+- 2026-07-17 (wave 2): TASK-007 fixed for real — root cause was a stale
+  `token_url` (`console.anthropic.com` → `platform.claude.com`), confirmed
+  against `cc-xray`'s `PROD_OAUTH_CONFIG.TOKEN_URL`; the bug had been
+  MASKED by an existing test that asserted the wrong URL as correct, not
+  just left unfixed — both the assertion and the underlying config are now
+  fixed, plus a new direct regression test. `refresh_margin_ms=60_000`
+  workaround removed from `bench/synthetic_multiturn_test.py`, verified via
+  a real local `access_token` retrieval with default settings. TASK-008
+  landed `bench/run_sweep.py` (serial sweep runner, `--dry-run` validated,
+  zero network calls in that mode by construction) and
+  `bench/analyze_results.py` (median/IQR aggregator, validated against a
+  hand-computed fixture — matched exactly). TASK-009 confirmed `thinking.display`
+  is real and request-settable (F9) but left the F2 contradiction
+  unresolved, sharpening it into a concrete next test (budget-scaling A/B).
+  Process note: two of three wave-2 forks hit severe context exhaustion
+  (~300-308K tokens each) partly caused by a coordinator mistake —
+  `isolation: "worktree"` was requested for cross-repo forks, which mirrors
+  the *coordinator's* tracked repo (`~/Projects/arr`) rather than the
+  target (`~/Projects/cc/claude-code-auth`), forcing both forks to
+  self-diagnose and improvise their own worktree-on-the-right-repo
+  workaround before they could even start their real task. One fork
+  (TASK-007) also left the shared `~/Projects/cc/claude-code-auth` checkout
+  on a stray branch with zero commits — caught and fixed immediately
+  (checked out back to `main`, confirmed clean). Both forks' partial,
+  well-diagnosed work was finished by the coordinator directly rather than
+  re-dispatching (small, already-scoped remainders). Lesson for future
+  waves in this mission: never pass `isolation: "worktree"` for a fork
+  targeting a different repo than the coordinator's own cwd — either omit
+  isolation and brief the fork to make its own `git -C <target> worktree
+  add` on the correct repo, or dispatch from a shell already cd'd into the
+  target repo.
 - 2026-07-17 (wave 1 + coordinator checks): Wave 1 research landed (6 parallel
   forks, TASK-001..006) — catalogued ~20 anthropic-beta values beyond the
   known 11 (including `fast-mode-2026-02-01`, `redact-thinking-2026-02-12`,

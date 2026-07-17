@@ -37,8 +37,8 @@ tags: [research]
 verification:
   - Findings appended to docs/THROUGHPUT_RESEARCH.md's Open Questions or Confirmed Findings as appropriate, with citations
 acceptance: []
-status: assigned
-assigned_to: wave2-research
-assigned_at: '2026-07-17T01:18:08'
+status: completed
+resolution: 'Thread 2 RESOLVED: thinking.display is real+request-settable (F9 in docs/THROUGHPUT_RESEARCH.md), omitted-vs-summarized affects streaming TTFT only, not cost/tokens. Thread 1 (OAuth-vs-API-key contradiction) still UNRESOLVED -- sharpened into a concrete next test (budget-scaling A/B), see Open Questions.'
 created: '2026-07-17T01:16:35'
-updated: '2026-07-17T01:18:08'
+updated: '2026-07-17T01:29:25'
+completed_at: '2026-07-17T01:29:25'

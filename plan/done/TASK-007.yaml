@@ -29,8 +29,8 @@ verification:
   - New test in tests/test_manager.py exercises the refresh path without a 404
   - bench/synthetic_multiturn_test.py works with a manager built WITHOUT the refresh_margin_ms=60_000 workaround
 acceptance: []
-status: assigned
-assigned_to: wave2-refresh-fix
-assigned_at: '2026-07-17T01:18:08'
+status: completed
+resolution: 'Fixed: token_url was stale (console.anthropic.com -> platform.claude.com), confirmed against cc-xray PROD_OAUTH_CONFIG.TOKEN_URL. Bug was previously MASKED by a test asserting the wrong URL as correct -- fixed that assertion + added test_token_url_matches_current_anthropic_endpoint. Verified: ruff+11/11 tests clean, real access_token retrieval succeeds with default refresh_margin_ms (commit 2944e6a).'
 created: '2026-07-17T01:16:35'
-updated: '2026-07-17T01:18:08'
+updated: '2026-07-17T01:29:25'
+completed_at: '2026-07-17T01:29:25'

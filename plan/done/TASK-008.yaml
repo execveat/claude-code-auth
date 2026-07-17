@@ -56,8 +56,8 @@ verification:
   - bench/run_sweep.py --dry-run <spec> prints the planned trial list without any network call
   - bench/analyze_results.py against a small hand-written fixture JSONL prints correct per-group medians
 acceptance: []
-status: assigned
-assigned_to: wave2-sweep-tooling
-assigned_at: '2026-07-17T01:18:08'
+status: completed
+resolution: 'bench/run_sweep.py (serial sweep runner, --dry-run zero-network by construction) + bench/analyze_results.py (median/IQR aggregator) built and validated: dry-run against bench/specs/example_effort_sweep.json produced correct 4-trial plan; analyze_results.py against a hand-computed 4-record fixture matched exactly (effort-low 47.00 tok/s/0.20 thinking_frac, effort-high 47.92/0.80). Merged commit 3118e62.'
 created: '2026-07-17T01:16:35'
-updated: '2026-07-17T01:18:08'
+updated: '2026-07-17T01:29:25'
+completed_at: '2026-07-17T01:29:25'

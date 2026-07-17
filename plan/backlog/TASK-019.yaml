@@ -1,0 +1,33 @@
+id: TASK-019
+title: 'EXP: budget_tokens-scaling test to resolve the F2 contradiction'
+description: 'TASK-009''s sharpened disproof test for the still-unresolved F2
+
+  contradiction (docs say thinking.enabled 400s on Sonnet 5; our OAuth
+
+  calls return 200). Same complex/substantive prompt (NOT a trivial
+
+  "reply OK" prompt -- must actually invoke real thinking) at
+
+  budget_tokens=1024 vs budget_tokens=32000. If thinking_tokens scales
+
+  with the requested budget, manual mode is genuinely honored for us;
+
+  if it stays roughly constant regardless, Sonnet 5 is silently
+
+  coercing thinking.enabled into adaptive-equivalent behavior under a
+
+  lenient OAuth-specific path. This is the single highest-value
+
+  remaining open contradiction in the whole mission''s findings.
+
+  '
+workstream: experiments
+priority: 55
+depends: []
+scope: []
+tags: [serial]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md, resolving F2/this Open Question definitively
+acceptance: []
+status: open
+created: '2026-07-17T01:29:25'
