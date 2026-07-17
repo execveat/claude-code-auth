@@ -21,5 +21,11 @@ touches: [bench/]
 verification:
   - Result appended to docs/THROUGHPUT_RESEARCH.md as a new finding
 acceptance: []
-status: open
+notes:
+  - at: '2026-07-17T04:55:16'
+    text: 'Coordinator finished the fork''s partial work (bench/cold_cache_stampede_test.py): ran 2 trials x N=4 concurrent calls sharing one cold cache marker -- 8/8 calls independently paid full cache_creation, zero cache_read, zero errors.'
+status: completed
+resolution: 'F23 confirmed: no dedup on concurrent cold-cache writes -- every concurrent caller pays the full write cost independently; fix is one warmup call before the concurrent batch'
 created: '2026-07-17T04:38:43'
+updated: '2026-07-17T04:55:16'
+completed_at: '2026-07-17T04:55:16'

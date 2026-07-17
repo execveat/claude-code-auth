@@ -199,6 +199,21 @@ Two headline results carried forward from before this autonomous pass:
     ordinary independent HTTP/1.1 connections handled with zero errors.
     "Switch to HTTP/2" is not the fix for F13's shortfall — keep using
     independent connections for concurrent workloads. See F21.
+20. **Batch API is closed to this OAuth account — via a token-scope gate,
+    genuinely different from every other gate this mission found.** F5/F17/F3
+    are all organization-type/billing gates; this is an OAuth token SCOPE
+    restriction (`HTTP 403`: token lacks `user:batch`/`user:developer`/
+    `workspace:developer`/`workspace:inference`) — not something a billing
+    change could unlock, since it would need a different auth path (a real
+    API key) entirely. See F22.
+21. **Firing N concurrent calls against the SAME cold cache prefix pays the
+    full cache-write cost N times over, not once — no deduplication at
+    all.** 2/2 trials, N=4 each: every concurrent caller independently paid
+    the full 358K-token cache-write, none got a cache-read, despite all N
+    racing the identical cache key at the same instant. A real, easy-to-miss
+    cost trap when naively combining this mission's two biggest levers
+    (F13's concurrency + prompt caching): fix is a single cheap warmup call
+    before firing the concurrent batch. See F23.
 
 ## Confirmed Findings
 
@@ -972,6 +987,81 @@ shortfall or lets scaling exceed N=16.
   `max_tokens:50`) plus the failed N=8/N=16 attempts (calls that errored
   before/during response don't bill meaningful output tokens).
 
+### F22. Batch API is closed to this OAuth account — a token-SCOPE gate, a new gate mechanism distinct from prior org-type gates (2026-07-17, TASK-024)
+Peer-review-surfaced follow-up: is Anthropic's Batch API (`/v1/messages/batches`,
+documented ~50% cost discount for async, non-time-sensitive workloads) usable
+via this OAuth-subscription credential, and if so, a viable independent
+throughput/cost lever alongside F13's real-time concurrency? Probed directly
+(`bench/batch_api_probe.py`) with one trivial batch request, same OAuth
+attribution headers as every other tool in this mission.
+
+`HTTP 403 permission_error`: `"OAuth token does not meet scope requirement
+any_of(user:batch, user:developer, workspace:developer, workspace:inference)"`
+
+- **Closed, cleanly — but via a genuinely DIFFERENT mechanism than this
+  mission's prior gates.** F5 (Priority Tier), F17 (`inference_geo`), and F3
+  (Fast Mode) are all **organization-type/billing** gates — the account's
+  org type or billing plan doesn't qualify, regardless of what the request
+  asks for. This is an **OAuth token SCOPE** gate instead: the Claude Code
+  OAuth token is scoped for interactive real-time `/v1/messages` calls only,
+  and explicitly lacks `user:batch`/`user:developer`/`workspace:developer`/
+  `workspace:inference` — scopes that (per Anthropic's public docs, which
+  only describe `x-api-key` auth for this endpoint, no OAuth mention) a
+  proper API-key-based integration would carry instead.
+- **Practical implication**: Batch API is not reachable from ANY OAuth-
+  subscription-authenticated tooling as currently scoped — this isn't a
+  billing decision Andrew could unlock (unlike Fast Mode, F3), it would
+  require a fundamentally different auth path (a real API key with batch
+  scope) alongside or instead of OAuth credential sharing. Not worth
+  revisiting unless the OAuth token's granted scopes change.
+- Real-API spend: one 403 response, zero output tokens billed.
+
+### F23. Concurrent cold-cache writers do NOT dedupe — every simultaneous caller pays the full cache-write cost independently (2026-07-17, TASK-023)
+Peer-review-surfaced follow-up: F13 tested concurrency entirely on a WARM
+cache lineage. This tests the cold case — N concurrent calls all racing to
+write the SAME never-before-seen cache key at once. New tool
+`bench/cold_cache_stampede_test.py`: all N calls in a trial share ONE fresh
+`uuid4()` marker (genuinely racing the identical cold key), fired via a
+thread pool. 2 independent trials, N=4 each, trivial prompt, thinking
+disabled, `max_tokens:50`.
+
+| trial | N | cache_creation (per call) | cache_read (per call) | errors |
+|---|---|---|---|---|
+| 0 | 4 | 358208, 358208, 358208, 358208 (all 4) | 0 (all 4) | 0 |
+| 1 | 4 | 358208, 358208, 358208, 358208 (all 4) | 0 (all 4) | 0 |
+
+- **Clean and decisive: NO deduplication.** In both trials, all 4 concurrent
+  callers independently paid the FULL cache-write cost for the identical
+  358K-token prefix — none of them got a cache-read, even though all 4 were
+  writing the exact same content at essentially the same instant. Zero
+  errors, zero race-condition symptoms (no timeouts, no malformed
+  responses) — the API simply treats each concurrent writer as if it were
+  the only one, redundantly, rather than serializing/coalescing them.
+- **Real economic implication, a genuine stampede cost multiplier**: a
+  parallelized workload that fires N concurrent calls sharing one COLD
+  context (e.g. N independent sub-tasks against the same large shared
+  system prompt, all starting at once from a cold cache) pays N times the
+  cache-write premium, not once — a real, easy-to-miss cost trap for anyone
+  combining this mission's own two biggest levers (F13's concurrency +
+  prompt caching) naively. The fix is straightforward once known: run ONE
+  cheap warmup call first (trivial prompt, minimal `max_tokens`, same
+  shared prefix) to pay the write cost exactly once, THEN fire the N
+  concurrent real calls — they'll all land as cheap cache-reads. This
+  mirrors a lesson this doc already drew for SERIAL sweeps (see Methodology
+  Notes) — this finding shows it applies with even more force to concurrent
+  workloads, where the naive mistake multiplies by N instead of costing a
+  single trial.
+- **Honest limitation**: n=2 trials, N=4 only (not pushed to N=8/16 given
+  time-box) — but the effect (0/4 dedup rate, twice) is unambiguous enough
+  not to need a larger N to trust the qualitative conclusion; a larger N
+  would only refine confidence in "always redundant," not change the
+  direction.
+- Real-API spend: 8 calls total (2 trials × 4 calls), each paying a full
+  358K-token cache-write — this is the one experiment this pass where the
+  design itself (testing redundant writes) unavoidably costs approximately
+  N× a single cache-write, roughly $4-6 (comparable to F15's cost, this
+  mission's prior largest single-experiment spend).
+
 ## Rejected / Superseded Hypotheses
 
 - **VPN exit-country geo-mirroring** — hypothesized that Anthropic might route
@@ -1092,17 +1182,17 @@ shortfall or lets scaling exceed N=16.
     (`RemoteProtocolError`/`LocalProtocolError`) somewhere between N=4 and
     N=8, well short of F13's own N=16. Keep using independent connections
     for concurrent workloads against this API.
-  - **What happens to concurrency's economics under a COLD shared cache?**
-    F13 ran entirely on a warm cache lineage — N simultaneous calls racing
-    to write the SAME cold 358K-token prefix (several paying
-    `cache_creation` at once) is untested and could behave differently
-    (contention, or multiple redundant cache-writes) than the all-warm
-    scenario F13 measured.
-  - **Is the Batch API (a separate, async, 50%-discounted endpoint) an
-    independent throughput/cost lever for non-time-sensitive workloads?**
-    Currently only mentioned as Fast-Mode-incompatible — never evaluated on
-    its own terms as an alternative to real-time concurrency (F13) for
-    workloads that can tolerate batch-style latency.
+  - ~~What happens to concurrency's economics under a COLD shared cache?~~ —
+    **RESOLVED, see F23 (TASK-023)**: no deduplication at all — every
+    concurrent caller racing the same cold cache key independently pays the
+    full cache-write cost (2/2 trials, N=4, 4/4 calls paid `cache_creation`
+    each time). Warm up the shared prefix with one cheap call before firing
+    concurrent real calls against it.
+  - ~~Is the Batch API (a separate, async, 50%-discounted endpoint) an
+    independent throughput/cost lever for non-time-sensitive workloads?~~ —
+    **RESOLVED, see F22 (TASK-024)**: no — closed via an OAuth token scope
+    gate (`403`, missing `user:batch`/etc scopes), not a billing decision;
+    would need a genuinely different auth path (a real API key) to use.
   - **Does warm cached-CONTEXT LENGTH itself change decode tok/s or
     wall-clock**, independent of the caching mechanism (F4 already
     established caching per se doesn't touch decode)? A randomized sweep at
@@ -1292,6 +1382,44 @@ shortfall or lets scaling exceed N=16.
 
 ## Changelog
 
+- 2026-07-17 (TASK-024 + TASK-023, run serially to avoid a concurrency
+  confound): **TASK-024** (fork): probed whether Batch API is reachable via
+  this OAuth credential. Landed **F22**: closed via an OAuth token SCOPE gate
+  (`403`, missing `user:batch`/`user:developer`/`workspace:developer`/
+  `workspace:inference`) — a genuinely different mechanism from this
+  mission's prior organization-type/billing gates (F5/F17/F3); not
+  something Andrew could unlock with a billing change, would need a real
+  API key instead. **TASK-023** (coordinator-finished after its fork hit
+  context exhaustion mid-task — see process note below): built
+  `bench/cold_cache_stampede_test.py` (N concurrent calls all racing ONE
+  shared fresh cache marker) and ran it, 2 trials × N=4. Landed **F23**: NO
+  deduplication — every concurrent caller independently paid the full
+  358K-token cache-write cost (8/8 calls across both trials), a real,
+  easy-to-miss cost multiplier when combining this mission's two biggest
+  levers (concurrency + caching) naively; fix is a single cheap warmup call
+  before firing concurrent real calls. Process note: TASK-023's fork hit a
+  hard context-exhaustion stop at ~307K tokens after only 3 tool calls (it
+  inherited the coordinator's own by-then-large session context) and
+  self-reported a clean, well-diagnosed BLOCKED status with an explicit
+  remaining-steps list rather than pushing on into a degraded state — the
+  coordinator finished the small, already-scoped remainder directly (dry-run,
+  real run, gate, this write-up) rather than re-dispatching, per this
+  mission's own established pattern for exactly this situation. This, plus
+  two separate incidents this pass where a freshly-dispatched fork returned
+  a ZERO-tool-call response narrating "waiting for a fork" instead of
+  executing its own directive (caught via `tool_uses: 0` in the returned
+  usage stats, fixed by re-dispatching with a blunt "you must act now, not
+  narrate" framing) — both point to the same root cause: the coordinator's
+  own context had grown large enough, by this point in an 8-hour session,
+  to destabilize what a freshly-forked agent inherits. The coordinator is
+  scheduling its own self-compaction immediately after this entry, per the
+  environment's own checkpoint signal (~300K tokens, past the internal
+  sharpness threshold). Real-API spend: F22 negligible (one 403); F23 ~$4-6
+  (8 calls each paying a full cache-write, the unavoidable cost of directly
+  testing redundant-write behavior). TASK-025 (warm-context-length sweep)
+  remains deliberately deferred as filed future work — the most
+  "academic"/lowest-payoff of the 4 peer-review-surfaced questions, and
+  correctly left for a future session rather than rushed here.
 - 2026-07-17 (TASK-022, dedicated fork): Tested the peer-review-surfaced
   HTTP/2 multiplexing hypothesis against F13's own open caveat (does a
   single shared connection recover the 13.4x-not-16x sub-linear scaling at

@@ -20,5 +20,11 @@ touches: [bench/]
 verification:
   - Result appended to docs/THROUGHPUT_RESEARCH.md as a new finding
 acceptance: []
-status: open
+notes:
+  - at: '2026-07-17T04:55:15'
+    text: 'Fork probed Batch API (bench/batch_api_probe.py, commit 8f304a7): HTTP 403, OAuth token lacks user:batch/developer/workspace-inference scope -- a scope gate, not a billing gate.'
+status: completed
+resolution: 'F22 confirmed: Batch API closed via OAuth token scope restriction, distinct from F5/F17/F3''s org-type gates; needs a real API key, not a billing change'
 created: '2026-07-17T04:38:43'
+updated: '2026-07-17T04:55:15'
+completed_at: '2026-07-17T04:55:15'
