@@ -1,0 +1,24 @@
+id: TASK-024
+title: 'EXP: Batch API as an independent throughput/cost lever'
+description: 'Currently only mentioned in this doc as Fast-Mode-incompatible -- never evaluated
+
+  on its own terms as an alternative to real-time concurrency (F13) for
+
+  non-time-sensitive workloads (50% cost discount, async). Surfaced by the final
+
+  external peer-review pass (2026-07-17).
+
+  '
+workstream: experiments
+priority: 25
+depends: []
+scope:
+  - Probe Batch API availability/behavior for this OAuth account
+  - If usable, compare cost/throughput profile against F13's real-time concurrency
+tags: [peer-review]
+touches: [bench/]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md as a new finding
+acceptance: []
+status: open
+created: '2026-07-17T04:38:43'

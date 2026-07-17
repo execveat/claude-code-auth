@@ -1,0 +1,25 @@
+id: TASK-023
+title: 'EXP: concurrency economics under a COLD shared cache'
+description: 'F13 ran entirely on a warm cache lineage. N simultaneous calls racing to write
+
+  the SAME cold 358K-token prefix (several paying cache_creation at once) is
+
+  untested and could behave differently (contention, redundant writes) than the
+
+  all-warm scenario F13 measured. Surfaced by the final external peer-review pass
+
+  (2026-07-17).
+
+  '
+workstream: experiments
+priority: 25
+depends: []
+scope:
+  - N concurrent calls against a genuinely cold shared prefix, compare to F13's warm baseline
+tags: [peer-review]
+touches: [bench/]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md as a new finding
+acceptance: []
+status: open
+created: '2026-07-17T04:38:43'

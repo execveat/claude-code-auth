@@ -1,0 +1,30 @@
+id: TASK-022
+title: 'EXP: HTTP/2 multiplexing vs F13''s N=16 sub-linear concurrency scaling'
+description: 'F13 found aggregate throughput scales ~13.4x (not 16x) at N=16 simultaneous
+
+  calls, attributed to "a client-side effect (thread scheduling / connection-pool
+
+  limits in this harness)" but never isolated -- this harness''s `requests` library
+
+  is HTTP/1.1 only (one socket per concurrent thread). Test whether `httpx` with
+
+  HTTP/2 (multiplexing many concurrent streams over one connection) recovers the
+
+  shortfall or pushes scaling past N=16 where requests-based threading tops out.
+
+  Surfaced by the final external peer-review pass (2026-07-17).
+
+  '
+workstream: experiments
+priority: 45
+depends: []
+scope:
+  - New tool comparing requests/HTTP1.1 vs httpx/HTTP2 at matched concurrency levels
+  - Distinct from F14 (serial session reuse) -- this tests concurrent multiplexing
+tags: [peer-review]
+touches: [bench/]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md as a new finding
+acceptance: []
+status: open
+created: '2026-07-17T04:38:43'

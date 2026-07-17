@@ -126,13 +126,19 @@ Two headline results carried forward from before this autonomous pass:
     only real advantage remains observability (TTFT-to-visible-text), not speed.
 12. **Manual `thinking.enabled` mode's `budget_tokens` is NOT enforced at all
     for this OAuth traffic** — a genuinely surprising, previously-unresolved
-    finding (TASK-019, resolves F2's long-standing open question). The SAME
-    hard prompt at budget_tokens=1024 vs budget_tokens=32000 (a 31x difference)
-    produced byte-identical behavior: both hit the SAME external `max_tokens`
-    ceiling with ~100% thinking, never stopping on their own smaller or larger
-    requested budget. `budget_tokens` is accepted (no 400, consistent with F2)
-    but appears to do nothing observable — only `output_config.effort` is a
-    real, working lever for controlling thinking depth on this path. See F15.
+    finding (TASK-019, resolves F2's long-standing open question). The
+    diagnostic evidence is the LOW arm: `budget_tokens=1024` still consumed
+    the entire external `max_tokens=20000` ceiling as thinking (a ~20x
+    overrun of its own requested cap), never stopping anywhere near 1024 —
+    reconfirmed by an incidental third data point (F16, `budget_tokens=2000`
+    also overran to its own external ceiling). The paired `budget_tokens=32000`
+    trial is corroborating but NOT independently diagnostic on its own — since
+    32000 exceeds the fixed 20000 `max_tokens` ceiling, that trial would hit
+    `max_tokens` first whether or not `budget_tokens` is actually enforced
+    (external peer review caught this; see F15's corrected write-up).
+    `budget_tokens` is accepted (no 400, consistent with F2) but appears to do
+    nothing observable — only `output_config.effort` is a real, working lever
+    for controlling thinking depth on this path. See F15.
 13. **Connection/session reuse shows no detectable effect** (TASK-020) — a
     lever both external peer reviewers independently flagged as unconsidered.
     Persistent-session calls were statistically indistinguishable from
@@ -649,18 +655,22 @@ ignoring it. Ran exactly this test: a genuinely hard multi-step logic puzzle
 | 1024 | 20000 (100% thinking) | 20000 | `max_tokens` (truncated) |
 | 32000 | 19999 (~100% thinking) | 20000 | `max_tokens` (truncated) |
 
-- **A 31x difference in requested budget produced byte-identical behavior.**
-  Neither trial's thinking stopped anywhere near its OWN requested budget —
-  both consumed the entire external `max_tokens` ceiling as thinking, with
-  zero visible text emitted. The smaller budget (1024) didn't cap generation
-  at ~1024 tokens as its name implies; the larger budget (32000) didn't
-  produce meaningfully more thinking than the smaller one once both hit the
-  same external ceiling — the requested value made no observable difference.
-- **Independently reconfirmed by a third, incidental data point**: TASK-012's
-  probe (below, F16) used `budget_tokens=2000` with `max_tokens=3000` on a
-  moderate reasoning prompt and again saw thinking consume 100% of
-  `max_tokens` (3000/3000), truncated — a third distinct budget value, same
-  overrun pattern.
+- **Correction (external peer review, 2026-07-17): only the LOW arm is truly
+  diagnostic, not both.** The original write-up framed this as "a 31x
+  difference produced byte-identical behavior," implying both trials
+  independently demonstrated non-enforcement. They don't, symmetrically: the
+  `budget_tokens=32000` trial requests a budget LARGER than the fixed
+  `max_tokens=20000` ceiling, so that trial hits `max_tokens` first whether
+  `budget_tokens` is honestly enforced or silently ignored — it cannot
+  distinguish the two hypotheses on its own. The real diagnostic evidence is
+  the `budget_tokens=1024` trial: a requested budget of 1024 tokens, but
+  thinking ran to the full 20000-token ceiling anyway — a ~20x overrun of its
+  own stated cap, which a genuinely-enforced budget could not produce. That
+  n=1 result, plus F16's incidental third data point (`budget_tokens=2000`,
+  again overran to its own external `max_tokens=3000` ceiling — a budget
+  smaller than the ceiling, so genuinely diagnostic), is what the "not
+  enforced" conclusion actually rests on: two independent low-budget trials,
+  both overrunning their own requested cap by a large margin.
 - **Resolves F2's long-standing open question**: this is hypothesis (b) from
   the Open Questions confirmed — Sonnet 5 (via this OAuth path) is not
   actually being constrained by manual `budget_tokens`; it behaves as if
@@ -671,10 +681,12 @@ ignoring it. Ran exactly this test: a genuinely hard multi-step logic puzzle
   build anything that relies on `budget_tokens` to control cost or thinking
   depth via manual mode on this path — it doesn't work. `output_config.effort`
   (F1/F10) is the only confirmed-working lever for controlling thinking depth.
-- **Caveat**: n=1 per budget value (plus the 1 incidental reconfirmation) —
-  small, but the effect is qualitative and dramatic (byte-identical behavior
-  across a 31x requested-budget difference), not a marginal statistical read
-  that needs a larger N to trust.
+- **Caveat**: n=1 per genuinely-diagnostic budget value (1024 and, incidentally,
+  2000) — small, but the effect is qualitative and dramatic (a ~10-20x overrun
+  of the requested cap in both cases), not a marginal statistical read that
+  needs a larger N to trust. The non-diagnostic 32000 arm is dropped from the
+  headline claim but kept in the table above for transparency about exactly
+  what was run.
 - Real-API spend: 2 trials at 20000 output tokens each (~40K tokens total,
   cache-read, effort unset/manual mode) — this mission's single largest
   per-experiment spend after TASK-010's sweep, roughly $4-6.
@@ -754,11 +766,19 @@ as the original F11 mistake, just discovered in a new context.
 | 1 | 22.20s / 1604 (natural) / 72.3 | 20.29s / 1771 (natural) / 87.3 |
 | 2 | 27.28s / 1853 (natural) / 67.9 | 29.85s / 3000 (truncated) / 62.0 |
 
-- **Direction is consistent across all 3 pairs**: cold showed lower
-  effective tok/s than its paired warm call in every pair (ratios
-  cold/warm ≈ 0.66, 0.83, 1.10 — pair 2's ratio is inverted from the other
-  two because its WARM call was the one that got truncated, an artifact of
-  the uncontrolled length, not a reversal of the underlying effect).
+- **Correction (external peer review, 2026-07-17): the original write-up
+  overstated this as "consistent across all 3 pairs" / "in every pair"** —
+  that's only true for 2 of 3 (cold/warm tok/s ratio ≈ 0.66, 0.83, both <1,
+  cold slower). Pair 2's ratio is 1.10 (cold FASTER, not slower) — a real
+  inversion, not a rounding artifact. The doc's own explanation (pair 2's
+  WARM call was the one that got truncated at `max_tokens`, an artifact of
+  uncontrolled output length) is a plausible reason NOT to trust that
+  particular pair's direction, but "truncation makes this pair's reading
+  unreliable" is different from "this pair still secretly agrees with the
+  other two" — the truncated pair's true underlying direction is simply
+  unknown, not silently in favor of the hypothesis. Correct framing: 2 of 3
+  pairs (the two with no truncation on either side) show cold slower than
+  warm; the third is uninterpretable, not confirmatory.
 - **The cleanest single comparison (pair 1, neither call truncated)** is the
   most persuasive: warm produced MORE output tokens (1771 vs 1604) in LESS
   wall-clock (20.29s vs 22.20s) than cold — the opposite of what pure
@@ -769,9 +789,13 @@ as the original F11 mistake, just discovered in a new context.
   item counts via the schema itself). A follow-up with a low, deterministically-
   truncating `max_tokens` (the same trick F11's redo used) would isolate the
   effect size cleanly; not done this pass given time/cost.
-- **Verdict: suggestive real effect, not yet a clean number.** Consistent
-  direction across 3/3 pairs plus one length-controlled-by-luck comparison is
-  more than pure noise, but doesn't meet this mission's bar for "confirmed."
+- **Verdict: suggestive real effect, not yet a clean number.** 2 of 3 pairs
+  (the pair with no truncation on either side, plus one where only cold was
+  truncated) point the same direction, the third is uninterpretable rather
+  than confirmatory (corrected above) — weaker support than the original
+  "3/3" framing implied, but still more than pure noise given pair 1's
+  clean, opposite-of-naive-expectation result. Doesn't meet this mission's
+  bar for "confirmed."
 - Real-API spend: 6 calls, ~13K output tokens total (cache-read) — under $2.
 
 ### F19. `thinking.display` streaming-TTFT benefit: INCONCLUSIVE — confounded by adaptive thinking's own depth variance (2026-07-17, TASK-018)
@@ -794,11 +818,23 @@ Raw `ttft_text_ms` per trial (ms):
   documented.
 - **But the TTFT comparison itself is uninterpretable — both conditions show
   the SAME bimodal pattern**: most trials fast (~3-5s to first visible text),
-  1-2 trials per condition wildly slow (43-59s) — driven entirely by
-  `adaptive` thinking's own call-to-call depth variance (the same
-  high-variance behavior F10 documented at `high`/`xhigh` effort), which
-  swamps whatever transmission-level effect `display` might have. Medians
-  land within 3% of each other (4382 vs 4500ms) — noise, not signal.
+  1-2 trials per condition wildly slow (43-59s), swamping whatever
+  transmission-level effect `display` might have. Medians land within 3% of
+  each other (4382 vs 4500ms) — noise, not signal.
+- **Correction (external peer review, 2026-07-17): this was attributed to
+  "the same high-variance behavior F10 documented at `high`/`xhigh`
+  effort," but F10 documented that wide variance specifically for `xhigh`
+  (thinking_frac range 0.05-0.71) and explicitly called `high`'s own range
+  TIGHT (0.07-0.09) — this experiment ran at `effort:"high"`, not `xhigh`.
+  So the bimodal pattern seen here is NOT simply a restatement of an
+  already-documented `high`-effort variance; it's a new, directly-observed
+  data point in its own right. Most likely explanation: F10 sampled `high`
+  at only n=3/condition, small enough that a rare slow-thinking trial could
+  easily be absent by chance, while this experiment's n=6/condition
+  happened to catch 1-2 such trials per condition. Read together, this
+  suggests `effort:"high"`'s true call-to-call depth variance is larger
+  than F10's n=3 sample alone indicated — worth a larger-N follow-up if this
+  matters later, not investigated further here.
 - **A deeper reason this is hard to fix, not just an underpowered N**: the
   natural instinct to control thinking depth (fix a low `budget_tokens` to
   keep every trial's thinking short and comparable) doesn't work — **F15
@@ -858,10 +894,15 @@ generation):
   6-10 minutes between turns, exactly this mission's own synthetic-multiturn
   use case), `ttl:"1h"` is the only setting that reliably keeps an expensive
   358K-token prefix warm. `ttl:"5m"` will silently re-pay the full
-  cache-write cost (~6x a cache-read's price, per the Methodology Notes'
-  existing observation) on any gap past 5 minutes — a real, avoidable cost
+  cache-write cost on any gap past 5 minutes — a real, avoidable cost
   footgun for exactly the kind of long-idle interactive use this toolkit
-  simulates.
+  simulates. Per Anthropic's documented pricing (verified 2026-07-17, not
+  the mission's own earlier "~6x a cache-read's price" guess, which was
+  wrong): a cache write costs 1.25x the base input rate at `5m` TTL, 2x at
+  `1h` TTL — i.e. `1h` is itself the MORE expensive write, 20x a cache-read's
+  0.1x rate, vs `5m`'s 12.5x — so `1h`'s advantage is entirely in avoiding
+  repeated rewrites across idle gaps, not a cheaper write; see the
+  Recommended Configuration correction below for the full tradeoff.
 - **Bonus probe**: `cache_control.scope:"global"` (sent via the undocumented
   `prompt-caching-scope-2026-01-05` beta header) is ACCEPTED (HTTP 200, not
   rejected) for this single-user OAuth caller, but shows no observable effect
@@ -890,14 +931,16 @@ generation):
   scared off manual mode, and re-derives the same (refuted-for-us) caution.
 - **"Non-streaming is faster than streaming"** — an earlier, pre-mission
   4-trial result suggested this, but it held effort/thinking uncontrolled,
-  so it's not trustworthy as stated. This mission's own attempted
-  controlled re-test (F11) was ALSO found to be confounded (by output
-  length, not by thinking/effort this time) after external peer review —
-  so this hypothesis is not so much "refuted" as **genuinely still open**;
-  neither direction has a clean, controlled result behind it yet. See F11
-  and TASK-021 (the proper re-test). Kept here (rather than deleted) so
-  nobody re-derives the old belief from the confounded 4-trial data, or
-  mistakes F11's now-corrected write-up for a clean refutation.
+  so it's not trustworthy as stated. This mission's own first controlled
+  re-test (F11) was ALSO found to be confounded (by output length, not by
+  thinking/effort this time) after external peer review, leaving the
+  question open at that point — but it is NOT open any longer: TASK-021's
+  properly-controlled redo (fixed-exact-output-length + randomized order,
+  N=16/mode) found no throughput difference in either direction (p=0.99),
+  see F11's update. Kept here (rather than deleted) so nobody re-derives the
+  old "non-streaming is faster" belief from the confounded 4-trial data, or
+  mistakes the ORIGINAL (also-confounded) F11 write-up for a still-standing
+  result — the CURRENT, corrected F11 is the one to trust.
 
 ## Open Questions
 
@@ -981,6 +1024,36 @@ generation):
   heavily overlapping IQRs). Most likely because TCP/TLS handshake is a
   small fraction of the true fixed overhead, which is probably server-side
   prefill — unreachable by client-side connection reuse.
+- **New questions surfaced by the final external peer-review pass
+  (2026-07-17, not yet run — filed as planq follow-ups for a future
+  session):**
+  - **Does HTTP/2 multiplexing (one connection, many concurrent streams)
+    recover F13's N=16 sub-linear scaling (13.4x, not 16x)?** F13 attributed
+    the shortfall to "a client-side effect (thread scheduling /
+    connection-pool limits in this harness)" but never isolated it — this
+    harness's `requests` library is HTTP/1.1 only (one socket per
+    concurrent thread); `httpx` with HTTP/2 could multiplex N calls over a
+    single connection and might close the gap, or push scaling past N=16
+    where `requests`-based threading tops out on socket/thread overhead.
+    Distinct from F14 (which tested SERIAL session reuse, not concurrent
+    multiplexing).
+  - **What happens to concurrency's economics under a COLD shared cache?**
+    F13 ran entirely on a warm cache lineage — N simultaneous calls racing
+    to write the SAME cold 358K-token prefix (several paying
+    `cache_creation` at once) is untested and could behave differently
+    (contention, or multiple redundant cache-writes) than the all-warm
+    scenario F13 measured.
+  - **Is the Batch API (a separate, async, 50%-discounted endpoint) an
+    independent throughput/cost lever for non-time-sensitive workloads?**
+    Currently only mentioned as Fast-Mode-incompatible — never evaluated on
+    its own terms as an alternative to real-time concurrency (F13) for
+    workloads that can tolerate batch-style latency.
+  - **Does warm cached-CONTEXT LENGTH itself change decode tok/s or
+    wall-clock**, independent of the caching mechanism (F4 already
+    established caching per se doesn't touch decode)? A randomized sweep at
+    0K/50K/358K warm-prefix sizes with fixed output length would isolate
+    whether a longer prefill phase (regardless of cache hit/miss) has any
+    measurable knock-on effect on the decode phase that follows it.
 
 ## Recommended Configuration
 
@@ -1003,12 +1076,14 @@ generation):
   non-streaming) — never for a speed advantage, because there isn't one.
 - **Prefer `thinking: {"type":"adaptive"}` + `output_config.effort` over
   manual `budget_tokens` — not just a style preference, `budget_tokens` is
-  CONFIRMED NON-FUNCTIONAL for us** (F15/TASK-019): a 31x difference in
-  requested budget (1024 vs 32000) produced byte-identical thinking-token
-  consumption. `effort` is the only confirmed-working lever for controlling
-  thinking depth via this OAuth path. Manual mode still doesn't 400 (F2), but
-  don't build anything that relies on `budget_tokens` actually capping cost
-  or depth — it doesn't.
+  CONFIRMED NON-FUNCTIONAL for us** (F15/TASK-019): a requested budget of
+  1024 tokens (well under the fixed 20000 `max_tokens` ceiling, so genuinely
+  diagnostic) still overran to the full ceiling — a ~20x overrun of its own
+  stated cap — reconfirmed by an incidental second low-budget trial (F16,
+  budget=2000, same overrun pattern). `effort` is the only confirmed-working
+  lever for controlling thinking depth via this OAuth path. Manual mode
+  still doesn't 400 (F2), but don't build anything that relies on
+  `budget_tokens` actually capping cost or depth — it doesn't.
 - **Connection/session reuse doesn't help — don't bother** (F14): no
   detectable difference between fresh-connection-per-call and a persistent
   `requests.Session()`, N=10/condition. The true fixed overhead F10/F12 imply
@@ -1021,17 +1096,24 @@ generation):
   it. The real (and only) cause of empty visible thinking is `thinking.display`
   defaulting to `"omitted"` (F9).
 - **`effort: "high"` (the documented default) is a sound default for typical
-  interactive use** (F10): low/medium/high/xhigh are statistically
-  indistinguishable in tok/s (~68-76 tok/s) and low/medium/high cluster in a
-  tight, low thinking-fraction band (~2-9%). Reach for `max` only when the
-  task genuinely needs deep, extended reasoning — it triples wall-clock
-  (~65s vs ~15-20s for the same prompt) and spends ~82% of output on
-  invisible thinking tokens.
-- **Any helper exposing `effort` must default/validate `max_tokens` >= ~20000
-  when `effort` is `"xhigh"` or `"max"`** (F10) — otherwise a real request can
-  silently truncate mid-thought (`stop_reason:"max_tokens"`) with no error,
-  which happened in 2 of 3 trials at a 6000-token ceiling during this mission's
-  own sweep.
+  interactive use** (F10): low/medium/high/xhigh's observed tok/s RANGES
+  overlap heavily at n=3/condition (~68-76 tok/s point estimates; no formal
+  significance test was run on this sweep, unlike F11's redo — "overlapping
+  ranges" is the honest characterization, not "statistically
+  indistinguishable") and low/medium/high cluster in a tight, low
+  thinking-fraction band (~2-9%). Reach for `max` only when the task
+  genuinely needs deep, extended reasoning — it triples wall-clock (~65s vs
+  ~15-20s for the same prompt) and spends ~82% of output on invisible
+  thinking tokens.
+- **Any helper exposing `effort:"max"` must default/validate `max_tokens` >=
+  ~20000** (F10) — otherwise a real request can silently truncate mid-thought
+  (`stop_reason:"max_tokens"`, reported but easy to miss), which happened in
+  2 of 3 trials at a 6000-token ceiling during this mission's own sweep. This
+  requirement is confirmed only for `max` — `xhigh` never truncated even at
+  6000 in the same sweep (one trial did reach 71% thinking_frac at that
+  ceiling, so generous headroom is still prudent for `xhigh`, but the
+  ">=20000" figure specifically is proven necessary for `max` only; the true
+  `xhigh` minimum is unmeasured).
 - **Fast Mode (F3) is the single biggest concrete lever this mission has
   found, and it needs Andrew's decision, not this session's.** Enabling
   pay-as-you-go "usage credits" billing unlocks up to a documented 2.5x OTPS
@@ -1045,14 +1127,24 @@ generation):
 - **Prompt caching should be treated purely as a cost/TTFT optimization in
   any helper tooling** — never marketed or reasoned about as a decode-speed
   lever (F4).
-- **Always request `cache_control.ttl:"1h"`, never the shorter `"5m"`
-  default, for any session with realistic idle gaps** (F20) — confirmed
-  directly: a `5m`-TTL cache entry evaporates and repays its FULL
-  cache-write cost (~6x a cache-read's price) across a gap as short as ~7
-  minutes, while an identical `1h`-TTL entry survives the same gap
-  byte-for-byte. This mission's own synthetic-multiturn harness (and any
-  real interactive session with human pauses between turns) should default
-  to `1h`. `cache_control.scope:"global"` is accepted but shows no
+- **Correction (external peer review, 2026-07-17) — the cache TTL
+  recommendation needs the real pricing tradeoff, not a blanket "always
+  1h."** Per Anthropic's own documented pricing, a cache WRITE costs 1.25x
+  the base input rate at `5m` TTL but 2x at `1h` TTL — `1h` is MORE
+  expensive up-front, not cheaper — while both TTLs read at the same 0.1x
+  rate once warm. So `1h` only wins economically once its lower rewrite
+  frequency (surviving gaps that would force a `5m` entry to repeatedly pay
+  the write premium) outweighs its own higher per-write cost — true for any
+  workload with realistic multi-minute idle gaps between reuses (this
+  mission's own synthetic-multiturn use case, or any real interactive
+  session with human pauses between turns), but NOT automatically true for a
+  prefix that's written once and read zero or one times before it would
+  have expired under either TTL. F20 confirmed the MECHANISM cleanly (1h
+  survives a ~7min gap byte-for-byte, 5m always expires and repays its write
+  cost) — the mission's own realistic-idle-gap workload should default to
+  `1h`, but a helper exposing this as a general-purpose default should weigh
+  the caller's actual reuse pattern, not treat `1h` as unconditionally
+  better. `cache_control.scope:"global"` is accepted but shows no
   observable benefit for a single-subscriber account — not worth using.
 
 ## Methodology Notes
@@ -1092,9 +1184,11 @@ generation):
   reported spread.
 - **Cache-write cost is incurred by whichever trial happens to run first
   after a thinking-mode/cache-lineage change, not evenly spread** — in the
-  effort sweep, exactly 4 of 15 trials paid the full 358K-token cache-write
-  cost (~6x a cache-read's price) simply by being first in their condition
-  group after a cache miss; the other 11 were cheap cache-reads. Not a bug,
+  effort sweep (`cache_ttl:"1h"`, so writes at 2x base input rate vs a
+  cache-read's 0.1x — a 20x ratio, corrected 2026-07-17 from an earlier,
+  wrong "~6x" guess), exactly 4 of 15 trials paid the full 358K-token
+  cache-write cost simply by being first in their condition group after a
+  cache miss; the other 11 were cheap cache-reads. Not a bug,
   but worth deliberately exploiting going forward: for any future sweep, run
   one cheap throwaway call first (trivial prompt, minimal `max_tokens`) to
   eat the cache-write cost on a near-zero-output request, so every real
@@ -1139,6 +1233,44 @@ generation):
 
 ## Changelog
 
+- 2026-07-17 (final external peer-review pass, mission wrap-up checkpoint):
+  With the backlog at zero open tickets, consulted `claude-opus-4-8-thinking-high`
+  and `gpt-5.6-sol-high` via `cursor-agent -p -f --mode ask` for a final
+  anti-cargo-cult critique of the full 20-finding doc, focused on F13-F20
+  (added since the last peer review, which only covered F1-F11). Both
+  independently found real issues; every one was independently re-verified
+  against the raw data/tables/source before acting, per this mission's own
+  standing norm. Corrected: **F15** overclaimed "31x difference... byte-identical"
+  when only the `budget_tokens=1024` arm was actually diagnostic (the 32000
+  arm's own requested budget exceeded the fixed `max_tokens=20000` ceiling,
+  so it couldn't distinguish enforced-vs-ignored either way) — the "not
+  enforced" conclusion still holds, now correctly grounded in only the
+  genuinely diagnostic evidence (1024 and F16's incidental 2000). **F18**
+  had an internal contradiction ("consistent across all 3 pairs" while
+  simultaneously disclosing a pair with an inverted ratio) — corrected to
+  "2 of 3, third uninterpretable." **F19** mischaracterized its own bimodal
+  TTFT pattern as "the same high-variance behavior F10 documented at
+  high/xhigh effort" when F10 explicitly called `high`'s variance TIGHT
+  (only `xhigh` was wide) — corrected to note this is actually NEW evidence
+  that `high`'s true variance exceeds what F10's n=3 sample caught. **F20**'s
+  "always use 1h, never 5m" was corrected with real pricing: verified
+  directly (not assumed) that `1h` cache writes cost MORE up-front (2x base
+  rate) than `5m` (1.25x) — `1h`'s advantage is entirely in avoiding repeat
+  rewrites across gaps, not a cheaper write — and the doc's own prior
+  "~6x a cache-read's price" figure (used in 3 places) was simply wrong;
+  corrected to the sourced 12.5x (5m) / 20x (1h) write-to-read ratios.
+  Recommended Configuration's `max_tokens>=20000` requirement was narrowed
+  from "xhigh or max" to "max" only, matching what F10 actually measured
+  (xhigh never truncated at 6000). A stale Rejected/Superseded entry still
+  claiming streaming-vs-nonstream was "genuinely still open" (pre-dating
+  TASK-021's definitive resolution) was updated. Filed 4 new Open Questions
+  for genuinely unexplored levers surfaced by the review (HTTP/2
+  multiplexing vs F13's sub-linear N=16 scaling, cold-cache concurrent
+  stampede economics, Batch API as its own lever, warm-context-length's
+  effect on decode independent of caching) — the first is being run now as
+  TASK-022 (see below); the rest filed as planq tickets for a future
+  session. No Anthropic API spend this pass (external CLI billing only, not
+  tracked in this doc's cost tally).
 - 2026-07-17 (TASK-013, dedicated fork + parallel read-only toolkit audit —
   mission's LAST planq ticket): New tool `bench/cache_ttl_gap_test.py` —
   injects a per-trial `uuid4()` marker into the cached block's text to avoid

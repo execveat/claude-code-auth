@@ -1,0 +1,23 @@
+id: TASK-025
+title: 'EXP: warm cached-context length''s effect on decode tok/s, independent of caching'
+description: 'F4 established caching per se doesn''t touch decode speed. This is a different
+
+  question: does the raw LENGTH of a warm prefill phase (0K/50K/358K) have any
+
+  measurable knock-on effect on the decode phase that follows it, regardless of
+
+  cache hit/miss? Surfaced by the final external peer-review pass (2026-07-17).
+
+  '
+workstream: experiments
+priority: 25
+depends: []
+scope:
+  - Randomized sweep at 0K/50K/358K warm-prefix sizes, fixed output length
+tags: [peer-review]
+touches: [bench/]
+verification:
+  - Result appended to docs/THROUGHPUT_RESEARCH.md as a new finding
+acceptance: []
+status: open
+created: '2026-07-17T04:38:43'
