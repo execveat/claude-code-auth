@@ -1,0 +1,9 @@
+{
+  "prompt": "List exactly 20 distinct, real, verifiable facts about deep-sea creatures. One fact per line. No headers, no numbering, no commentary.",
+  "thinking": "adaptive",
+  "max_tokens": 4000,
+  "conditions": [
+    {"label": "effort-low", "args": {"effort": "low"}},
+    {"label": "effort-high", "args": {"effort": "high"}}
+  ]
+}

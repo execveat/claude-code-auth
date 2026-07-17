@@ -224,3 +224,7 @@ gemini.txt
 # bench/ fixtures are built from real Claude Code session transcripts
 # (verbatim conversation content) -- regenerate locally, never commit.
 bench/fixtures/
+
+# bench/ sweep results are real usage data (real prompts, real token counts,
+# real timings) -- not source, never commit.
+bench/results/
