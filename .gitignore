@@ -220,3 +220,7 @@ __marimo__/
 
 # Stray scratch files not part of the project
 gemini.txt
+
+# bench/ fixtures are built from real Claude Code session transcripts
+# (verbatim conversation content) -- regenerate locally, never commit.
+bench/fixtures/
