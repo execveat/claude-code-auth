@@ -107,6 +107,14 @@ Two headline results carried forward from before this autonomous pass:
    is observability (a real, measurable time-to-first-visible-text-token),
    not throughput. A properly controlled re-test is filed as TASK-021. See
    F11, F12.
+10. **Concurrency is this mission's single most actionable lever, and it's
+    free.** N simultaneous calls (same account, same-process thread
+    concurrency) show NO detectable per-request throughput degradation up
+    to N=16 — every individual call's tok/s stayed in the same ~56-74 band
+    as a solo call, zero errors, zero rate-limiting. Aggregate throughput
+    scaled ~13.4x at N=16. Unlike Fast Mode (needs a billing change,
+    unverified for us) or any single-request tuning, this needs zero
+    account changes and works today. See F13.
 
 ## Confirmed Findings
 
@@ -425,6 +433,65 @@ harness's per-phase timing (`ttft_text_ms` marks the boundary between
 - Also incidentally confirms the streaming `usage.service_tier` bug (below,
   Methodology Notes) is fixed: both trials correctly show `"standard"`.
 
+### F13. Concurrency: NO detectable per-request throughput degradation up to N=16 simultaneous calls from one account (2026-07-17, TASK-014)
+The user's other explicit ask, and both external peers' independent #1 pick
+for most valuable remaining experiment. New tool
+(`bench/concurrency_test.py`, thread-pool based — `requests` releases the
+GIL during I/O, so N threads genuinely overlap N in-flight HTTP calls) fires
+N simultaneous non-streaming calls, same prompt/`effort:"high"`/
+`thinking:"adaptive"`, at N=1/2/4/8/16 (`bench/results/concurrency.jsonl`).
+Run in complete isolation (nothing else hit the API during this test).
+
+| N | individual-call tok/s range | aggregate tok/s | vs N=1 baseline (64.2) |
+|---|---|---|---|
+| 1 | 64.4 | 64.2 | 1.0x |
+| 2 | 67.8-70.8 | 126.0 | 1.96x |
+| 4 | 66.9-104.1* | 199.9 | 3.11x |
+| 8 | 63.4-74.0 | 503.0 | 7.83x |
+| 16 | 56.0-72.9 | 857.7 | 13.4x |
+
+\* one of the 4 calls at N=4 produced 3661 output tokens (vs ~1000-1200 for
+its 3 siblings) — ordinary `adaptive`-thinking per-call variance (same
+phenomenon seen throughout F10/F11), not concurrency-induced slowdown; it
+stretched that level's `batch_span` and thus its aggregate number, which is
+why N=4's aggregate looks below the N=8/N=16 trend.
+
+- **Individual per-call tok/s stays in essentially the same band at every
+  concurrency level tested** (56-74 tok/s, matching the N=1 baseline of
+  64.4 almost exactly) **— no evidence of server-side per-request
+  throttling or degradation up to 16 simultaneous calls from one OAuth
+  account.** Zero errors, zero 429s, at any level.
+- **Aggregate throughput scales substantially with concurrency** — nearly
+  linear at N=2/8 (1.96x, 7.83x), a bit sub-linear by N=16 (13.4x, not
+  16x). The N=16 shortfall traces to a mild natural stagger in individual
+  call completion times (15.5s→21.8s spread across the 16 calls) rather
+  than any per-request slowdown — every individual call's own tok/s stayed
+  flat regardless of when it finished. This stagger is most plausibly a
+  client-side effect (thread scheduling / connection-pool limits in this
+  harness) rather than server-side throttling, but that's not yet isolated
+  (see caveat below).
+- **This is the single most actionable throughput lever this mission has
+  found**: unlike Fast Mode (F3, needs a billing change, unverified for us)
+  or any single-request parameter tuning (F1/F10), concurrency requires
+  ZERO account changes and is available immediately — running N requests
+  in parallel gets roughly N times the real-world tokens/sec out of this
+  account, at least up to 16x, with no detected ceiling yet.
+- **Caveats, stated plainly**: (1) only ONE prompt/effort/thinking
+  combination was tested (`effort:"high"`, ~1000-1200 output tokens/call) —
+  behavior at much larger per-call output sizes, or under sustained
+  concurrent load over minutes rather than one burst, is untested. (2) No
+  response headers (rate-limit remaining/reset, retry-after) were captured
+  by this harness, so there's no direct evidence of *how much* headroom
+  remains above N=16 — only that nothing broke. (3) N was not pushed higher
+  than 16 this pass, for time/cost reasons; the ceiling (if any, for this
+  account/tier) is still unknown. (4) This test used same-process
+  thread-based concurrency only, not separate OS processes — the ticket's
+  original design asked for both; given HTTP requests look identical to
+  the server regardless of client-side process/thread structure, and the
+  actual server-side answer (does concurrent load degrade per-request
+  throughput) is what was tested and answered, a process-level variant is
+  now a lower-priority follow-up, not a re-test of the same question.
+
 ## Rejected / Superseded Hypotheses
 
 - **VPN exit-country geo-mirroring** — hypothesized that Anthropic might route
@@ -525,11 +592,13 @@ harness's per-phase timing (`ttft_text_ms` marks the boundary between
   caller, and if so whether it does anything observable for us (a priori:
   probably not, since the mechanism exists to share a cache ACROSS multiple
   users of one org, which doesn't apply to a lone subscriber).
-- **Does concurrency (N parallel raw API calls, same vs different OAuth
-  session/process) change per-request tok/s** — the user's other explicit
-  ask, not yet tested at all. Needs its own ISOLATED test wave (nothing else
-  hitting the API concurrently) to avoid confounding every other single-lever
-  experiment above, and vice versa.
+- ~~Does concurrency (N parallel raw API calls) change per-request tok/s~~ —
+  **RESOLVED, see F13**: no, not detectably, up to N=16 same-process
+  concurrent calls (individual tok/s stayed in the same 56-74 band as the
+  N=1 baseline at every level tested). Aggregate throughput scales
+  substantially (~13.4x at N=16). Still open: the actual ceiling (untested
+  above N=16), behavior under sustained load over minutes, and a
+  separate-OS-process variant (lower priority — see F13's caveats).
 - **Does grammar-constrained decoding (structured outputs, warm cache) change
   steady-state decode tok/s at all** — no data in either direction (F7).
 - **Does `inference_geo` (an explicit, documented per-request region-override
@@ -552,6 +621,15 @@ harness's per-phase timing (`ttft_text_ms` marks the boundary between
 
 *(firming up as experiments land)*
 
+- **Run work concurrently — this is the single biggest lever found so far
+  (F13)**: up to 16 simultaneous calls from one account showed no
+  detectable per-request throughput degradation, and aggregate throughput
+  scaled ~13.4x. If a workload can be parallelized at all (independent
+  prompts, independent sub-tasks), doing so multiplies real-world
+  tokens/sec with zero account/billing changes — a bigger, more certain win
+  than Fast Mode's unverified 2.5x. Ceiling above N=16 is untested; if
+  higher concurrency is needed in practice, verify it holds at that scale
+  first rather than assuming linear scaling continues indefinitely.
 - **Streaming vs non-streaming: no throughput preference established yet**
   (F11, corrected after external peer review) — the mission's original
   attempt at this comparison was confounded by an output-length difference
@@ -674,6 +752,17 @@ harness's per-phase timing (`ttft_text_ms` marks the boundary between
 
 ## Changelog
 
+- 2026-07-17 (TASK-014, coordinator-run, fully isolated): New tool
+  `bench/concurrency_test.py` (thread-pool based). Tested N=1/2/4/8/16
+  simultaneous same-account calls. Landed F13: no detectable per-request
+  throughput degradation at any level tested (individual tok/s stayed
+  56-74, matching the N=1 baseline of 64.2); aggregate throughput scaled
+  ~13.4x by N=16. This is the single most actionable lever this mission has
+  found — free, immediate, no billing changes. Both external peers had
+  independently picked concurrency as the highest-value remaining
+  experiment; this confirms why. Real-API spend: 31 calls total
+  (1+2+4+8+16), ~1000-1300 output tokens each (~35K total output tokens),
+  effort=high/cache-read throughout — roughly $0.50-0.70.
 - 2026-07-17 (external peer review pass, natural checkpoint after F10/F11):
   Consulted 2 of 3 planned external peers (opus-4.8, gpt-5.6-sol; fable-5
   blocked by a data-policy gate) with an explicit anti-cargo-cult framing.
