@@ -143,8 +143,14 @@ def build_body(messages, args):
     return body, headers
 
 
-def run_streaming(messages, args):
+def run_streaming(messages, args, session=None):
+    """session=None (default) preserves today's exact behavior -- a fresh
+    module-level requests.post() per call, no connection reuse. Pass a
+    requests.Session() to reuse the same TCP/TLS connection across calls
+    (TASK-020: does connection/session reuse shrink the ~8-12s fixed
+    per-request overhead implied by F10/F12?)."""
     body, headers = build_body(messages, args)
+    poster = session.post if session is not None else requests.post
     t_start = time.time()
     t_first_any = None
     t_first_thinking = None
@@ -155,9 +161,7 @@ def run_streaming(messages, args):
     stop_reason = None
     usage_final = None
 
-    with requests.post(
-        URL, headers=headers, json=body, stream=True, timeout=300
-    ) as resp:
+    with poster(URL, headers=headers, json=body, stream=True, timeout=300) as resp:
         if resp.status_code != 200:
             raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:2000]}")
         for raw_line in resp.iter_lines(decode_unicode=True):
@@ -219,10 +223,13 @@ def run_streaming(messages, args):
     }
 
 
-def run_nonstreaming(messages, args):
+def run_nonstreaming(messages, args, session=None):
+    """session=None (default) preserves today's exact behavior -- see
+    run_streaming's docstring for the rationale (TASK-020)."""
     body, headers = build_body(messages, args)
+    poster = session.post if session is not None else requests.post
     t_start = time.time()
-    resp = requests.post(URL, headers=headers, json=body, timeout=300)
+    resp = poster(URL, headers=headers, json=body, timeout=300)
     if resp.status_code != 200:
         raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:2000]}")
     t_end = time.time()
