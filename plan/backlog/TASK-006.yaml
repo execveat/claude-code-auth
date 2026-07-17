@@ -1,0 +1,31 @@
+id: TASK-006
+title: Document context-management beta and other optional request params
+description: 'Full docs on context-management-2025-06-27 (auto context editing/compaction
+
+  server-side?) and a sweep of remaining optional request-body params for
+
+  any throughput relevance: stop_sequences, top_k, top_p interaction with
+
+  thinking, parallel tool call behavior, metadata field, any ''speed'' or
+
+  ''iterations'' fields we''ve already observed appearing in usage stats
+
+  (usage.speed="standard", usage.iterations=[]) -- what do these mean and
+
+  can they be requested/influenced.
+
+  '
+workstream: research
+priority: 45
+depends: []
+scope:
+  - docs.claude.com Messages API full reference (all optional body params)
+tags: [research]
+verification:
+  - Report appended to docs/THROUGHPUT_RESEARCH.md
+acceptance: []
+status: assigned
+assigned_to: research-wave1
+assigned_at: '2026-07-17T00:46:05'
+created: '2026-07-17T00:46:05'
+updated: '2026-07-17T00:46:05'

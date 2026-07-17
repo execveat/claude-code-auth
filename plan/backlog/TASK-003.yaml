@@ -1,0 +1,29 @@
+id: TASK-003
+title: Document structured outputs / output_format and JSON schema constraints
+description: 'Full docs on the output_format / structured-outputs beta (STRUCTURED_OUTPUTS_BETA_HEADER
+
+  seen in cc-xray sideQuery.ts). What syntax, what models support it, and
+
+  whether constrained/grammar-guided decoding measurably changes tok/s
+
+  (could go either way: grammar constraint sometimes narrows the token search
+
+  space and speeds decode, or adds per-token overhead). Flag for the
+
+  experiments workstream to test empirically either way.
+
+  '
+workstream: research
+priority: 55
+depends: []
+scope:
+  - docs.claude.com structured outputs / tool use JSON schema pages
+tags: [research]
+verification:
+  - Report appended to docs/THROUGHPUT_RESEARCH.md
+acceptance: []
+status: assigned
+assigned_to: research-wave1
+assigned_at: '2026-07-17T00:46:05'
+created: '2026-07-17T00:46:05'
+updated: '2026-07-17T00:46:05'

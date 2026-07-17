@@ -214,3 +214,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Serena MCP project index (auto-generated local tool cache)
+.serena/
+
+# Stray scratch files not part of the project
+gemini.txt

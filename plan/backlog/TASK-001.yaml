@@ -1,0 +1,40 @@
+id: TASK-001
+title: Catalog every active Anthropic anthropic-beta header value
+description: 'Read Anthropic''s official API docs (docs.claude.com / code.claude.com) plus
+
+  cross-check against ~/Projects/cc/cc-xray source for the CURRENT full set of
+
+  anthropic-beta header values in circulation, beyond the 11 we already know
+
+  about (claude-code-20250219, oauth-2025-04-20, context-1m-2025-08-07,
+
+  interleaved-thinking-2025-05-14, context-management-2025-06-27,
+
+  prompt-caching-scope-2026-01-05, advisor-tool-2026-03-01,
+
+  advanced-tool-use-2025-11-20, effort-2025-11-24, extended-cache-ttl-2025-04-11,
+
+  cache-diagnosis-2026-04-07). For EACH beta: what it does, whether it plausibly
+
+  affects THROUGHPUT (tok/s) vs just capability/format, and whether it''s
+
+  available to OAuth/subscription callers (not just API-key billing).
+
+  Report as a table: beta value | purpose | throughput-relevant? | notes.
+
+  '
+workstream: research
+priority: 75
+depends: []
+scope:
+  - docs.claude.com and code.claude.com API reference + changelog pages
+  - cross-check against ~/Projects/cc/cc-xray/src for beta strings actually sent by real Claude Code
+tags: [research]
+verification:
+  - Report appended to docs/THROUGHPUT_RESEARCH.md 'Confirmed Findings' or 'Open Questions' with citations
+acceptance: []
+status: assigned
+assigned_to: research-wave1
+assigned_at: '2026-07-17T00:46:05'
+created: '2026-07-17T00:46:05'
+updated: '2026-07-17T00:46:05'

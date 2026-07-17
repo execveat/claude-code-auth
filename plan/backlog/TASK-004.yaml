@@ -1,0 +1,35 @@
+id: TASK-004
+title: 'Document prompt caching mechanics: TTL variants, scope beta, cache_control rules'
+description: 'Full docs on prompt caching: 5m vs 1h TTL (extended-cache-ttl-2025-04-11),
+
+  prompt-caching-scope-2026-01-05 (what does ''scope'' mean -- org-wide? per-key?),
+
+  cache_control placement rules (max breakpoints per request, nesting rules),
+
+  pricing deltas (cache write vs read vs base), and cache-diagnosis-2026-04-07
+
+  (what extra diagnostics does it surface -- we''ve already seen
+
+  cache_creation.ephemeral_1h_input_tokens / ephemeral_5m_input_tokens in
+
+  responses, is there more available). Flag anything with throughput
+
+  (not just cost) implications, e.g. does 1h TTL reduce prefill/TTFT
+
+  variance across a long session by keeping cache warm longer.
+
+  '
+workstream: research
+priority: 70
+depends: []
+scope:
+  - docs.claude.com prompt caching page + beta changelog
+tags: [research]
+verification:
+  - Report appended to docs/THROUGHPUT_RESEARCH.md
+acceptance: []
+status: assigned
+assigned_to: research-wave1
+assigned_at: '2026-07-17T00:46:05'
+created: '2026-07-17T00:46:05'
+updated: '2026-07-17T00:46:05'

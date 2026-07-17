@@ -1,0 +1,34 @@
+id: TASK-002
+title: Document extended/interleaved thinking + the effort request param
+description: 'Full docs on: thinking.budget_tokens semantics, adaptive/interleaved thinking,
+
+  redacted_thinking blocks, and CRITICALLY whether there is a raw top-level
+
+  request body `effort` field (gated by the effort-2025-11-24 beta) that
+
+  Claude Code CLI''s --effort low/medium/high/xhigh/max flag maps to. If it
+
+  exists: what values, what it actually changes server-side (thinking budget?
+
+  model routing? sampling?), and whether it''s independent of thinking.budget_tokens
+
+  or supersedes it. This is high-value: if found, it''s the single most direct
+
+  lever for reproducing Claude Code''s own effort levels from raw API calls.
+
+  '
+workstream: research
+priority: 75
+depends: []
+scope:
+  - docs.claude.com extended thinking + interleaved thinking pages
+  - cc-xray source for how --effort maps to request body (grep for 'effort')
+tags: [research]
+verification:
+  - Report appended to docs/THROUGHPUT_RESEARCH.md with a code-level citation for the effort field if found
+acceptance: []
+status: assigned
+assigned_to: research-wave1
+assigned_at: '2026-07-17T00:46:05'
+created: '2026-07-17T00:46:05'
+updated: '2026-07-17T00:46:05'

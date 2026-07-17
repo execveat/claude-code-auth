@@ -1,0 +1,35 @@
+id: TASK-005
+title: Document service tiers / priority capacity availability for OAuth callers
+description: 'Anthropic''s API has a service_tier concept (e.g. priority tier for
+
+  guaranteed capacity, at a price premium) for API-key/console billing.
+
+  Determine: (a) does a service_tier request param exist and what values,
+
+  (b) is it available AT ALL to OAuth-subscription-authenticated callers
+
+  (Claude Code''s own auth mechanism, which is what claude-code-auth uses) or
+
+  is it API-key-console-billing only, (c) if unavailable to us, say so
+
+  plainly as a closed question rather than leaving it open. Also check
+
+  whether `usage.service_tier` in responses (we''ve observed "standard")
+
+  ever varies and what triggers a different value.
+
+  '
+workstream: research
+priority: 60
+depends: []
+scope:
+  - docs.claude.com service tiers / priority tier pages
+tags: [research]
+verification:
+  - Report appended to docs/THROUGHPUT_RESEARCH.md, explicitly marked AVAILABLE or NOT AVAILABLE to OAuth callers
+acceptance: []
+status: assigned
+assigned_to: research-wave1
+assigned_at: '2026-07-17T00:46:05'
+created: '2026-07-17T00:46:05'
+updated: '2026-07-17T00:46:05'
